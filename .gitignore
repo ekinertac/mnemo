@@ -1,0 +1,18 @@
+# Binaries
+/mnemo
+/bin/
+*.exe
+*.test
+*.out
+
+# Go
+/vendor/
+go.work
+go.work.sum
+
+# Local env / secrets — never commit repo passwords or backend creds
+.env
+*.local
+
+# OS
+.DS_Store
