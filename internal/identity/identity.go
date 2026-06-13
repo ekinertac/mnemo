@@ -53,3 +53,44 @@ func stripWindowsDrive(p string) string {
 	}
 	return p
 }
+
+// FromEncoded computes the identity for a Claude projects/<encodedCwd> dir name, given this
+// machine's encodedHome prefix. Under-home dirs become home:<tail>; everything else abs:<enc>.
+// Comparison is case-insensitive (case-insensitive filesystems), with a separator boundary so
+// "-Users-ekin" does not swallow "-Users-ekinside".
+func FromEncoded(encodedCwd, encodedHome string) Identity {
+	if tail, ok := stripEncodedHome(encodedCwd, encodedHome); ok {
+		return Identity("home:" + tail)
+	}
+	return Identity("abs:" + encodedCwd)
+}
+
+// stripEncodedHome returns the encoded tail below home (starting with '-', or "" at home root)
+// when encodedCwd is encodedHome or sits beneath it; ok=false otherwise.
+func stripEncodedHome(encodedCwd, encodedHome string) (string, bool) {
+	n := len(encodedHome)
+	if len(encodedCwd) < n || !strings.EqualFold(encodedCwd[:n], encodedHome) {
+		return "", false
+	}
+	rest := encodedCwd[n:]
+	if rest == "" {
+		return "", true // session opened exactly at $HOME
+	}
+	if rest[0] != '-' {
+		return "", false // prefix boundary: "-Users-ekin" vs "-Users-ekinside"
+	}
+	return rest, true
+}
+
+// ToEncoded inverts FromEncoded for THIS machine: home: identities get encodedHome prepended;
+// abs: identities are used verbatim. ok=false for a malformed identity (no known scheme).
+func ToEncoded(id Identity, encodedHome string) (string, bool) {
+	s := string(id)
+	if tail, ok := strings.CutPrefix(s, "home:"); ok {
+		return encodedHome + tail, true
+	}
+	if enc, ok := strings.CutPrefix(s, "abs:"); ok {
+		return enc, true
+	}
+	return "", false
+}
