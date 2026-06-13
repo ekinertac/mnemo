@@ -10,15 +10,16 @@
 //     the raw staging tree without touching ~/.claude.
 //
 // The --target flag sets the directory the staging tree lands in (default: ./mnemo-restore).
-// restic snapshots store the staging root at its absolute cache path; we use the
-// "snapshotID:subpath" restore syntax so the by-id/ and projects.json land directly in target
-// rather than nested under the full absolute-path hierarchy.
+// The restore subpath (what strips the absolute cache prefix from the snapshot tree) is derived
+// from the SNAPSHOT's own recorded path via restoreStagingTreeTo — NOT from this machine's
+// stageRootDir. This is critical for cross-machine correctness: UserCacheDir differs per
+// OS/user, so the pushing machine's path won't match the pulling machine's local cache dir.
 //
 // Non-interactive (principle 8): pull never asks and never silently clobbers. Conflict policy
 // at file granularity is last-write-wins; .jsonl append-merge is M3.
 //
 // Related: internal/restore (LayDown/ResolveLocal), internal/manifest (overlay), root.go
-// (overlayLocalOverrides, stageRootDir), internal/identity (EncodedHome).
+// (overlayLocalOverrides, restoreStagingTreeTo), internal/identity (EncodedHome).
 package command
 
 import (
@@ -53,14 +54,6 @@ func runPull(args []string) error {
 		target = filepath.Join(cwd, "mnemo-restore")
 	}
 
-	// stageRoot is where the staging tree was backed up FROM; restic stores it at that absolute
-	// path. Using the ":subpath" restore syntax strips that prefix so the staging tree lands
-	// directly at target (by-id/, projects.json at the top level) rather than nested.
-	stageRoot, err := stageRootDir()
-	if err != nil {
-		return err
-	}
-
 	ctx := context.Background()
 	if err := restic.Available(ctx); err != nil {
 		return err
@@ -68,7 +61,10 @@ func runPull(args []string) error {
 
 	repo, desc := resolveRepo(*repoFlag)
 	fmt.Printf("mnemo: restoring snapshot %q from %s -> %s\n", *snapFlag, desc, target)
-	if err := repo.RestoreSubpath(ctx, *snapFlag, stageRoot, target); err != nil {
+	// restoreStagingTreeTo derives the subpath from the snapshot's own recorded path rather
+	// than this machine's stageRootDir, so a snapshot pushed from any machine restores correctly
+	// here — cross-machine UserCacheDirs differ.
+	if err := restoreStagingTreeTo(ctx, repo, *snapFlag, target); err != nil {
 		return err
 	}
 	fmt.Printf("mnemo: restored into %s\n", target)

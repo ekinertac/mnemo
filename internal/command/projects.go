@@ -10,10 +10,11 @@
 // The host-local override store (~/.config/mnemo/projects.json) is overlaid before resolving,
 // so overrides written by `mnemo map` are reflected immediately without a push round-trip.
 //
-// We use RestoreSubpath (restic's "snapshotID:subpath" syntax) so the staging tree lands directly
-// at the temp dir rather than nested under the full absolute cache path hierarchy.
+// The staging tree is restored via restoreStagingTree (root.go), which derives the subpath from
+// the snapshot's own recorded path — not this machine's stageRootDir — so this command works
+// correctly when reading a snapshot pushed from a different machine (different OS or username).
 //
-// Related: internal/restore (ResolveLocal), root.go (overlayLocalOverrides, stageRootDir),
+// Related: internal/restore (ResolveLocal), root.go (overlayLocalOverrides, restoreStagingTree),
 // map.go (writes overrides), internal/identity (EncodedHome, Identity), internal/manifest (Load).
 package command
 
@@ -49,19 +50,12 @@ func runProjects(args []string) error {
 	if err != nil {
 		return err
 	}
-	stageRoot, err := stageRootDir()
-	if err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp("", "mnemo-projects-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
 	repo, _ := resolveRepo(*repoFlag)
-	if err := repo.RestoreSubpath(ctx, "latest", stageRoot, tmp); err != nil {
+	tmp, cleanup, err := restoreStagingTree(ctx, repo, "latest")
+	if err != nil {
 		return err
 	}
+	defer cleanup()
 	man, err := manifest.Load(filepath.Join(tmp, "projects.json"))
 	if err != nil {
 		return err

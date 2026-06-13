@@ -18,6 +18,7 @@
 package command
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -179,4 +180,34 @@ func overlayLocalOverrides(man *manifest.Manifest, host string) error {
 		man.SetOverride(host, id, p)
 	}
 	return nil
+}
+
+// restoreStagingTreeTo restores the snapshot's staging tree into target, deriving the restore
+// subpath from the SNAPSHOT's own recorded path (SnapshotPaths) rather than this machine's
+// stageRootDir — so a tree pushed by any machine restores flat (by-id/, projects.json at the
+// root of target) regardless of where that machine's cache dir lives. This is the fix for the
+// cross-machine resume path; every reader of a pushed tree must go through here.
+func restoreStagingTreeTo(ctx context.Context, repo restic.Repo, snapshot, target string) error {
+	paths, err := repo.SnapshotPaths(ctx, snapshot)
+	if err != nil {
+		return err
+	}
+	// Mnemo backs up exactly one path (the pushing machine's staging root), so paths[0] is it.
+	return repo.RestoreSubpath(ctx, snapshot, paths[0], target)
+}
+
+// restoreStagingTree restores the snapshot's staging tree into a fresh temp dir and returns the
+// dir plus a cleanup func. Used by the read-only views (machines/projects) that need the tree
+// transiently.
+func restoreStagingTree(ctx context.Context, repo restic.Repo, snapshot string) (string, func(), error) {
+	tmp, err := os.MkdirTemp("", "mnemo-restore-")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { os.RemoveAll(tmp) }
+	if err := restoreStagingTreeTo(ctx, repo, snapshot, tmp); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return tmp, cleanup, nil
 }

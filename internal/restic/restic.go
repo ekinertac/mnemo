@@ -19,9 +19,11 @@ package restic
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // Repo identifies a restic repository for a sequence of operations.
@@ -68,6 +70,48 @@ func (r Repo) run(ctx context.Context, args ...string) error {
 	return nil
 }
 
+// runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json),
+// while still surfacing stderr to the user.
+func (r Repo) runCapture(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "restic", args...)
+	cmd.Env = os.Environ()
+	if r.Repository != "" {
+		cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+r.Repository)
+	}
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("restic %s: %w", args[0], err)
+	}
+	return out.String(), nil
+}
+
+// SnapshotPaths returns the backup paths recorded in the given snapshot (default "latest").
+// Mnemo always backs up exactly one path — the PUSHING machine's staging root — so callers use
+// the returned path as the restore subpath. Deriving it from the snapshot (not from this
+// machine's stageRootDir) is what makes cross-machine restore work: each machine's UserCacheDir
+// differs, but the snapshot records whatever path it was actually backed up from.
+func (r Repo) SnapshotPaths(ctx context.Context, snapshot string) ([]string, error) {
+	if snapshot == "" {
+		snapshot = "latest"
+	}
+	out, err := r.runCapture(ctx, "snapshots", snapshot, "--json")
+	if err != nil {
+		return nil, err
+	}
+	var snaps []struct {
+		Paths []string `json:"paths"`
+	}
+	if err := json.Unmarshal([]byte(out), &snaps); err != nil {
+		return nil, fmt.Errorf("parsing restic snapshots json: %w", err)
+	}
+	if len(snaps) == 0 || len(snaps[len(snaps)-1].Paths) == 0 {
+		return nil, fmt.Errorf("no snapshot or backup path found for %q", snapshot)
+	}
+	return snaps[len(snaps)-1].Paths, nil
+}
+
 // Init creates a new restic repository (`restic init`). It is an error if the repo already
 // exists — callers that mean "create or attach" should treat that as benign.
 func (r Repo) Init(ctx context.Context) error {
@@ -107,7 +151,9 @@ func (r Repo) Restore(ctx context.Context, snapshot, target string) error {
 // the snapshot tree) into target. restic's "snapshotID:subfolder" syntax strips the subfolder
 // prefix so files land directly under target — this is what lets pull/projects/machines reach
 // the staging root (by-id/, projects.json) without traversing a full absolute-path hierarchy.
-// snapshotSubpath is the staging tree root as it was backed up (stageRootDir()).
+// snapshotSubpath should be derived from the snapshot's own recorded path (SnapshotPaths),
+// NOT from this machine's stageRootDir — they differ across OS/user, which is the root of the
+// cross-machine restore bug.
 func (r Repo) RestoreSubpath(ctx context.Context, snapshot, snapshotSubpath, target string) error {
 	if snapshot == "" {
 		snapshot = "latest"

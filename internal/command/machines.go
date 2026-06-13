@@ -5,18 +5,19 @@
 // a host backs up; `mnemo machines` is the discovery view that lets you see which devices have
 // contributed to the shared repo and when each last synced.
 //
-// We use RestoreSubpath (restic's "snapshotID:subpath" syntax) so the staging tree lands directly
-// at the temp dir rather than nested under the full absolute cache path hierarchy.
+// The staging tree is restored via restoreStagingTree (root.go), which derives the subpath from
+// the snapshot's own recorded path — not this machine's stageRootDir. That is what makes
+// cross-machine listing work: a snapshot pushed from /Users/A/Library/Caches/... restores
+// correctly on a machine whose cache lives at /home/B/.cache/....
 //
 // Related: internal/manifest (Machines field, Load), push.go (TouchMachine writes the registry),
-// root.go (resolveRepo, stageRootDir), internal/restic (Available, RestoreSubpath).
+// root.go (resolveRepo, restoreStagingTree), internal/restic (Available).
 package command
 
 import (
 	"context"
 	"flag"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/ekinertac/mnemo/internal/manifest"
@@ -33,19 +34,12 @@ func runMachines(args []string) error {
 	if err := restic.Available(ctx); err != nil {
 		return err
 	}
-	stageRoot, err := stageRootDir()
-	if err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp("", "mnemo-machines-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
 	repo, _ := resolveRepo(*repoFlag)
-	if err := repo.RestoreSubpath(ctx, "latest", stageRoot, tmp); err != nil {
+	tmp, cleanup, err := restoreStagingTree(ctx, repo, "latest")
+	if err != nil {
 		return err
 	}
+	defer cleanup()
 	man, err := manifest.Load(filepath.Join(tmp, "projects.json"))
 	if err != nil {
 		return err
