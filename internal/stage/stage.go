@@ -28,6 +28,11 @@ import (
 	"github.com/ekinertac/mnemo/internal/filter"
 )
 
+// Mapper rewrites a source-relative path to its staging-relative path. nil means identity
+// (mirror the source layout — M1 behavior). M2 supplies a mapper that rewrites
+// projects/<encoded-cwd>/<rest> to by-id/<identity>/<rest> so snapshots are machine-independent.
+type Mapper func(rel string) string
+
 // Result reports what a Build did, for messaging and `doctor`-style diagnostics. Skipped is
 // keyed by the Class that caused the skip so we can say *why* things were left out, not just
 // that they were.
@@ -42,7 +47,10 @@ type Result struct {
 // are pruned wholesale so their (often huge) subtrees are never walked. Unknown directories
 // are still descended — they may contain durable files deeper down — but Unknown files are
 // skipped. stageRoot is created if absent and is assumed to be empty/disposable.
-func Build(srcRoot, stageRoot string, c filter.Classifier) (Result, error) {
+func Build(srcRoot, stageRoot string, c filter.Classifier, m Mapper) (Result, error) {
+	if m == nil {
+		m = func(rel string) string { return rel }
+	}
 	res := Result{Skipped: map[filter.Class]int{}}
 
 	info, err := os.Stat(srcRoot)
@@ -82,7 +90,8 @@ func Build(srcRoot, stageRoot string, c filter.Classifier) (Result, error) {
 			return nil
 		}
 
-		n, err := materialize(p, filepath.Join(stageRoot, rel))
+		dstRel := m(rel)
+		n, err := materialize(p, filepath.Join(stageRoot, dstRel))
 		if err != nil {
 			return err
 		}

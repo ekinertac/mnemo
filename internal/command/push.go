@@ -57,7 +57,9 @@ func runPush(args []string) error {
 	}
 
 	fmt.Printf("mnemo: building staging tree from %s\n", src)
-	res, err := stage.Build(src, stageRoot, filter.Classifier{})
+	// nil mapper = identity (M1 behavior: mirror source layout). M2 will supply a real mapper
+	// that rewrites projects/<encoded-cwd> to by-id/<identity> for machine-independent snapshots.
+	res, err := stage.Build(src, stageRoot, filter.Classifier{}, nil)
 	if err != nil {
 		return err
 	}

@@ -47,7 +47,7 @@ func TestBuildSelectsOnlyDurable(t *testing.T) {
 		"cache/blob":                                     "cache\n",
 	})
 
-	res, err := Build(src, stageDir, filter.Classifier{})
+	res, err := Build(src, stageDir, filter.Classifier{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,36 @@ func TestBuildSelectsOnlyDurable(t *testing.T) {
 
 // A missing source root is an error the caller can report, not a panic.
 func TestBuildMissingSource(t *testing.T) {
-	if _, err := Build(filepath.Join(t.TempDir(), "nope"), t.TempDir(), filter.Classifier{}); err == nil {
+	if _, err := Build(filepath.Join(t.TempDir(), "nope"), t.TempDir(), filter.Classifier{}, nil); err == nil {
 		t.Error("expected error for missing source root, got nil")
+	}
+}
+
+// With a Mapper, durable paths are rewritten in the staging tree (M2 keys projects/ by identity).
+func TestBuildAppliesMapper(t *testing.T) {
+	src := t.TempDir()
+	stageDir := t.TempDir()
+	writeTree(t, src, map[string]string{
+		"projects/-Users-ekinertac-Code-foo/s.jsonl": "s\n",
+		"history.jsonl": "h\n",
+	})
+	mapper := func(rel string) string {
+		if rel == filepath.FromSlash("projects/-Users-ekinertac-Code-foo/s.jsonl") {
+			return filepath.FromSlash("by-id/home:-Code-foo/s.jsonl")
+		}
+		return rel
+	}
+	res, err := Build(src, stageDir, filter.Classifier{}, mapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Included != 2 {
+		t.Errorf("Result.Included = %d, want 2", res.Included)
+	}
+	if _, err := os.Stat(filepath.Join(stageDir, filepath.FromSlash("by-id/home:-Code-foo/s.jsonl"))); err != nil {
+		t.Errorf("expected remapped path: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stageDir, "history.jsonl")); err != nil {
+		t.Errorf("non-project file should pass through: %v", err)
 	}
 }
