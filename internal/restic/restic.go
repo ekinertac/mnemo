@@ -103,6 +103,23 @@ func (r Repo) Restore(ctx context.Context, snapshot, target string) error {
 	return r.run(ctx, "restore", snapshot, "--target", target)
 }
 
+// RestoreSubpath restores only the files rooted at snapshotSubpath (an absolute path within
+// the snapshot tree) into target. restic's "snapshotID:subfolder" syntax strips the subfolder
+// prefix so files land directly under target — this is what lets pull/projects/machines reach
+// the staging root (by-id/, projects.json) without traversing a full absolute-path hierarchy.
+// snapshotSubpath is the staging tree root as it was backed up (stageRootDir()).
+func (r Repo) RestoreSubpath(ctx context.Context, snapshot, snapshotSubpath, target string) error {
+	if snapshot == "" {
+		snapshot = "latest"
+	}
+	if target == "" {
+		return fmt.Errorf("restore: empty target dir")
+	}
+	// restic "snapshotID:/path/within/snapshot" syntax: restores that sub-tree directly
+	// under --target without the leading absolute path components.
+	return r.run(ctx, "restore", snapshot+":"+snapshotSubpath, "--target", target)
+}
+
 // Snapshots lists the repo's snapshots (`restic snapshots`). Output streams to stdout; this
 // is the M0 stand-in for `mnemo log`.
 func (r Repo) Snapshots(ctx context.Context) error {

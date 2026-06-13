@@ -1,17 +1,16 @@
 // Package command implements Mnemo's CLI subcommands and the dispatch between them.
 //
 // Execute is the single entrypoint (called from package main). Each subcommand lives in
-// its own file (push.go, pull.go, init.go, log.go) and exposes a `func(args []string) error`.
-// This package owns argument parsing and config resolution; the actual engine work is
-// delegated to internal/restic. Keeping dispatch here (rather than in main) means the CLI
-// surface is testable and the entrypoint stays trivial.
+// its own file (push.go, pull.go, init.go, log.go, map.go, projects.go, machines.go) and
+// exposes a `func(args []string) error`. This package owns argument parsing and config
+// resolution; the actual engine work is delegated to internal/restic, internal/restore,
+// internal/manifest, and internal/identity. Keeping dispatch here (rather than in main)
+// means the CLI surface is testable and the entrypoint stays trivial.
 //
-// At M0 the subcommand set is intentionally minimal — init, push, pull, log — and maps
-// almost 1:1 onto restic operations. The richer surface in DESIGN §6 (machines, projects,
-// map, prune, verify, diff, doctor) arrives in later milestones once the Claude-aware
-// layer exists. We use only the standard library `flag` package: a single-binary tool
-// benefits from zero dependencies, and the dispatch is trivial to migrate if the flag
-// handling ever outgrows stdlib.
+// M2 adds map/projects/machines and resume-aware pull lay-down. Host-local overrides
+// (written offline by `mnemo map`) live at ~/.config/mnemo/projects.json; they are overlaid
+// onto the repo manifest at pull/projects time so an override applies on the next pull
+// without requiring a push round-trip. See overlayLocalOverrides and localManifestPath.
 //
 // Config resolution (DESIGN §6.1): repo location comes from --repo flag, then MNEMO_REPO,
 // then RESTIC_REPOSITORY (which restic itself reads). Secrets are never flags — the repo
@@ -24,6 +23,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ekinertac/mnemo/internal/manifest"
 	"github.com/ekinertac/mnemo/internal/restic"
 )
 
@@ -48,6 +48,12 @@ func Execute(args []string) int {
 		err = runPull(rest)
 	case "log":
 		err = runLog(rest)
+	case "map":
+		err = runMap(rest)
+	case "projects":
+		err = runProjects(rest)
+	case "machines":
+		err = runMachines(rest)
 	case "help", "-h", "--help":
 		usage()
 		return 0
@@ -65,13 +71,17 @@ func Execute(args []string) int {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `mnemo — sync Claude Code sessions as restic snapshots (M0 spike)
+	fmt.Fprint(os.Stderr, `mnemo — sync Claude Code sessions as restic snapshots
 
 usage:
-  mnemo init     [--repo PATH]                 create/attach a restic repo
-  mnemo push     [--repo PATH] [--path DIR]    snapshot Claude sessions     (alias: snapshot)
-  mnemo pull     [--repo PATH] [--snapshot ID] [--target DIR]   restore     (alias: restore)
-  mnemo log      [--repo PATH]                 list snapshots
+  mnemo init     [--repo PATH]                                     create/attach a restic repo
+  mnemo push     [--repo PATH] [--path DIR]                        snapshot Claude sessions     (alias: snapshot)
+  mnemo pull     [--repo PATH] [--snapshot ID] [--target DIR]      restore and lay down         (alias: restore)
+                 [--lay-down=false]                                 (--lay-down=false: raw restore only)
+  mnemo log      [--repo PATH]                                     list snapshots
+  mnemo map      <identity> <local-path>                           record a host-local path override (offline)
+  mnemo projects [--repo PATH] [--unmapped]                        list project identities and local resolution
+  mnemo machines [--repo PATH]                                     list machines that have pushed
 
 config:
   repo location:  --repo  >  $MNEMO_REPO  >  $RESTIC_REPOSITORY
@@ -137,3 +147,36 @@ func manifestStagePath(stageRoot string) string { return filepath.Join(stageRoot
 // nowRFC3339 is the single point where wall-clock time enters the command layer. Keeping time
 // out of the internal/* packages keeps them deterministically testable with injected timestamps.
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
+
+// localManifestPath is this host's local override/bookkeeping store, written by `mnemo map`
+// (offline, no restic) and overlaid onto the repo manifest at pull/projects time so an override
+// applies immediately. Lives under the user config dir; the directory is created if absent.
+func localManifestPath() (string, error) {
+	cfg, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve config dir: %w", err)
+	}
+	dir := filepath.Join(cfg, "mnemo")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "projects.json"), nil
+}
+
+// overlayLocalOverrides copies this host's overrides from the local store onto man, so an
+// override set by `mnemo map` applies on the next pull/projects without a push round-trip.
+// A missing local store is not an error — it just means no overrides have been set yet.
+func overlayLocalOverrides(man *manifest.Manifest, host string) error {
+	lpath, err := localManifestPath()
+	if err != nil {
+		return err
+	}
+	local, err := manifest.Load(lpath)
+	if err != nil {
+		return err
+	}
+	for id, p := range local.Overrides[host] {
+		man.SetOverride(host, id, p)
+	}
+	return nil
+}
