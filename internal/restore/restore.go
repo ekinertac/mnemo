@@ -86,18 +86,11 @@ func resolveDst(relSlash, host, encodedHome string, m *manifest.Manifest, rep *R
 // exact same way restore does (one resolution path, not two).
 func ResolveLocal(id identity.Identity, host, encodedHome string, m *manifest.Manifest) (string, bool) {
 	if ov, ok := m.Override(host, string(id)); ok {
-		return identity.Encode(stripDrive(ov)), true
+		// Encode the override path the same way EncodedHome does (drive-strip then Claude-encode),
+		// so an override resolves to a dir name Claude would actually use.
+		return identity.Encode(identity.StripWindowsDrive(ov)), true
 	}
 	return identity.ToEncoded(id, encodedHome)
-}
-
-// stripDrive mirrors identity.EncodedHome's Windows drive handling for override paths.
-func stripDrive(p string) string {
-	if len(p) >= 2 && p[1] == ':' &&
-		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) {
-		return p[2:]
-	}
-	return p
 }
 
 // writeFile copies src to dst (creating parents). M2 policy: last write wins at file level;

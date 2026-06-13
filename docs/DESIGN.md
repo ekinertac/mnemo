@@ -372,8 +372,13 @@ No data is at risk: local is authoritative and additive snapshots can't delete i
   Since there are no prompts, `init` instead *prints* the password/recovery instruction and
   requires the caller to have supplied it explicitly (env/file/keychain) — it never invents or
   hides one. Optionally store it in the OS keychain. Document loudly in `init` output and `doctor`.
-- **Windows path handling.** Encoded cwd differs (`C--Users-...`); identity layer is exactly
-  what abstracts this away. Test it early.
+- **Windows path handling (not yet verified on a live box).** Under-home cwds tokenize the same
+  as macOS (`C:\Users\u\…` → `-Users-u-…`, drive dropped — step-0 finding), so the identity layer
+  abstracts them away. Outside-home Windows paths keep the drive (`C:\work\foo` → `abs:C--work-foo`)
+  and don't resolve on Unix — accepted. **Known blocker for Windows push:** the staging dir name
+  `by-id/home:-Code-foo` contains a `:`, which NTFS forbids in filenames — so push would fail on
+  Windows until the identity is given a filesystem-safe encoding for the `by-id/` path component
+  (e.g. escape `:` → `__`, decode on restore). Must be fixed before claiming Windows support.
 
 ---
 

@@ -43,10 +43,13 @@ func Encode(p string) string {
 // it (step-0 finding: C:\Users\u and /Users/u both -> -Users-u). This is the one OS-specific
 // seam and the single thing to confirm on a live Windows box.
 func EncodedHome(home string) string {
-	return Encode(stripWindowsDrive(home))
+	return Encode(StripWindowsDrive(home))
 }
 
-func stripWindowsDrive(p string) string {
+// StripWindowsDrive removes a leading `<letter>:` drive prefix from a path. Exported because the
+// same handling is needed when encoding an override path in internal/restore — keeping it one
+// function (not a copy) means the Windows drive rule can't drift between the two seams.
+func StripWindowsDrive(p string) string {
 	if len(p) >= 2 && p[1] == ':' &&
 		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) {
 		return p[2:]

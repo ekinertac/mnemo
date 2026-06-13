@@ -59,6 +59,11 @@ M5 (keychain, polish). **Still pending verification:** a real **Mac⇄Windows** 
 injecting `encodedHome`, but not yet run on a live Windows box). Also not yet exercised against
 a real S3/B2 backend (only local restic repos so far).
 
+**Known Windows-push blocker (fix before Windows support):** the staging dir name
+`by-id/home:-Code-foo` contains a `:`, which NTFS forbids — `mnemo push` would fail on Windows.
+Needs a filesystem-safe encoding of the identity for the `by-id/` path component (escape `:`,
+decode on restore). Mac-only use is unaffected. See DESIGN §8.
+
 ## Hard-won fact: Claude's cwd encoding (drove the whole M2 identity design)
 
 Claude names `~/.claude/projects/<encoded-cwd>` by replacing **every non-alphanumeric character
