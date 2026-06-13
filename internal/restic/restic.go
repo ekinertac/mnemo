@@ -70,19 +70,22 @@ func (r Repo) run(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json),
-// while still surfacing stderr to the user.
+// runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json).
+// Unlike run, it captures stderr into the returned error rather than streaming it live: callers
+// like SnapshotPaths probe best-effort (e.g. "is there a prior snapshot?"), and restic's benign
+// "no snapshot matched" notice on stderr would otherwise look like an error on a fresh repo's
+// first push. On a real failure the stderr text is preserved in the error for diagnosis.
 func (r Repo) runCapture(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "restic", args...)
 	cmd.Env = os.Environ()
 	if r.Repository != "" {
 		cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+r.Repository)
 	}
-	var out strings.Builder
+	var out, errBuf strings.Builder
 	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &errBuf
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("restic %s: %w", args[0], err)
+		return "", fmt.Errorf("restic %s: %w: %s", args[0], err, strings.TrimSpace(errBuf.String()))
 	}
 	return out.String(), nil
 }
@@ -164,6 +167,20 @@ func (r Repo) RestoreSubpath(ctx context.Context, snapshot, snapshotSubpath, tar
 	// restic "snapshotID:/path/within/snapshot" syntax: restores that sub-tree directly
 	// under --target without the leading absolute path components.
 	return r.run(ctx, "restore", snapshot+":"+snapshotSubpath, "--target", target)
+}
+
+// RestoreSubpathInclude restores only the files rooted at snapshotSubpath AND matching the
+// include pattern into target. It combines the "snapshotID:subfolder" syntax with --include so
+// callers can fetch a single named file (e.g. projects.json) without restoring the entire tree.
+// restic strips the subfolder prefix, so matched files land directly under target.
+func (r Repo) RestoreSubpathInclude(ctx context.Context, snapshot, snapshotSubpath, include, target string) error {
+	if snapshot == "" {
+		snapshot = "latest"
+	}
+	if target == "" {
+		return fmt.Errorf("restore: empty target dir")
+	}
+	return r.run(ctx, "restore", snapshot+":"+snapshotSubpath, "--include", include, "--target", target)
 }
 
 // Snapshots lists the repo's snapshots (`restic snapshots`). Output streams to stdout; this

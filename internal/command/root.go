@@ -135,10 +135,16 @@ func stageRootDir() (string, error) {
 	return filepath.Join(cache, "mnemo", "stage"), nil
 }
 
-// hostID returns this machine's hostname for snapshot tags and the manifest. Centralised here
-// so push.go has a single call site — the host value is shared between the manifest stamp and
-// the restic backup tag, and having one function makes the coupling obvious.
-func hostID() (string, error) { return os.Hostname() }
+// hostID is this machine's identity for snapshot tags and the manifest. MNEMO_HOST overrides
+// the OS hostname (DESIGN §6.1: host id is a configurable setting) — useful when a machine's
+// hostname is unstable, and it lets tests simulate multiple devices on one box by running two
+// pushes with different MNEMO_HOST values without actually needing two machines.
+func hostID() (string, error) {
+	if h := os.Getenv("MNEMO_HOST"); h != "" {
+		return h, nil
+	}
+	return os.Hostname()
+}
 
 // manifestStagePath is where projects.json lives inside the staging tree. The manifest is
 // written into the staging root before restic runs so it is versioned inside the snapshot,
@@ -210,4 +216,30 @@ func restoreStagingTree(ctx context.Context, repo restic.Repo, snapshot string) 
 		return "", nil, err
 	}
 	return tmp, cleanup, nil
+}
+
+// loadRepoManifest restores just projects.json from the latest snapshot so push can accumulate
+// machine bookkeeping across pushes. Best-effort: returns an error (caller starts fresh) when
+// there is no snapshot yet. It uses --include to restore only the manifest file rather than the
+// whole staging tree — keeps this fast even for large repos.
+//
+// Restic behavior (verified empirically): `restic restore snapshotID:/abs/stage --include
+// projects.json --target tmp` strips the /abs/stage prefix and places projects.json directly
+// under tmp, yielding tmp/projects.json. No nested absolute-path hierarchy under tmp.
+func loadRepoManifest(ctx context.Context, repo restic.Repo) (*manifest.Manifest, error) {
+	paths, err := repo.SnapshotPaths(ctx, "latest")
+	if err != nil {
+		// No snapshot yet (first push) — start fresh.
+		return nil, err
+	}
+	tmp, err := os.MkdirTemp("", "mnemo-manifest-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+	if err := repo.RestoreSubpathInclude(ctx, "latest", paths[0], "projects.json", tmp); err != nil {
+		return nil, err
+	}
+	// restic strips the snapshotSubpath prefix, so projects.json lands flat at tmp/projects.json.
+	return manifest.Load(filepath.Join(tmp, "projects.json"))
 }
