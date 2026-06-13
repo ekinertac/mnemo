@@ -50,7 +50,7 @@ func TestM2CrossHomeResume(t *testing.T) {
 	}
 
 	// "Machine A": synthetic ~/.claude with one project session under encoded home -Users-AAA.
-	// The mapper will turn projects/-Users-AAA-Code-foo/s.jsonl → by-id/home:-Code-foo/s.jsonl.
+	// The mapper will turn projects/-Users-AAA-Code-foo/s.jsonl → by-id/home_-Code-foo/s.jsonl.
 	srcA := t.TempDir()
 	encHomeA := "-Users-AAA"
 	mustWrite(t, filepath.Join(srcA, "projects", encHomeA+"-Code-foo", "s.jsonl"), "hello\n")
@@ -73,7 +73,7 @@ func TestM2CrossHomeResume(t *testing.T) {
 	}
 
 	// "Machine B": lay down with a DIFFERENT encoded home -Users-BBB. The restore layer should
-	// re-home by-id/home:-Code-foo/s.jsonl → projects/-Users-BBB-Code-foo/s.jsonl.
+	// re-home by-id/home_-Code-foo/s.jsonl → projects/-Users-BBB-Code-foo/s.jsonl.
 	claudeB := t.TempDir()
 	rep, err := restore.LayDown(restored, claudeB, "machineB", "-Users-BBB", manifest.New())
 	if err != nil {

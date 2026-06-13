@@ -76,8 +76,11 @@ func runProjects(args []string) error {
 		if !e.IsDir() {
 			continue
 		}
-		id := e.Name()
-		enc, ok := restore.ResolveLocal(identity.Identity(id), host, encHome, man)
+		// by-id dir names are path-safe (':' -> '_'); recover the canonical identity for display
+		// (it's what the user types into `mnemo map`) and resolution.
+		id := identity.FromPathSafe(e.Name())
+		ids := string(id)
+		enc, ok := restore.ResolveLocal(id, host, encHome, man)
 		exists := false
 		if ok {
 			if _, err := os.Stat(filepath.Join(home, ".claude", "projects", enc)); err == nil {
@@ -89,11 +92,11 @@ func runProjects(args []string) error {
 		}
 		switch {
 		case !ok:
-			fmt.Printf("  %-34s unmapped (no local resolution; use: mnemo map %s <path>)\n", id, id)
+			fmt.Printf("  %-34s unmapped (no local resolution; use: mnemo map %s <path>)\n", ids, ids)
 		case exists:
-			fmt.Printf("  %-34s -> %s (present)\n", id, enc)
+			fmt.Printf("  %-34s -> %s (present)\n", ids, enc)
 		default:
-			fmt.Printf("  %-34s -> %s (not present locally)\n", id, enc)
+			fmt.Printf("  %-34s -> %s (not present locally)\n", ids, enc)
 		}
 	}
 	return nil

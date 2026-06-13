@@ -71,10 +71,13 @@ func resolveDst(relSlash, host, encodedHome string, m *manifest.Manifest, rep *R
 		rep.Unmapped = append(rep.Unmapped, rest)
 		return "", false
 	}
-	id, tail := rest[:slash], rest[slash+1:]
-	localEncoded, ok := ResolveLocal(identity.Identity(id), host, encodedHome, m)
+	// The dir component is the path-safe identity (':' -> '_'); recover the canonical identity
+	// before resolving so manifest-override lookups (keyed by the canonical form) match.
+	idSeg, tail := rest[:slash], rest[slash+1:]
+	id := identity.FromPathSafe(idSeg)
+	localEncoded, ok := ResolveLocal(id, host, encodedHome, m)
 	if !ok {
-		rep.Unmapped = append(rep.Unmapped, id)
+		rep.Unmapped = append(rep.Unmapped, string(id))
 		return "", false
 	}
 	return "projects/" + localEncoded + "/" + tail, true

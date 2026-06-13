@@ -25,7 +25,7 @@ func TestLayDownReHomesUnderHomeIdentity(t *testing.T) {
 	restored := t.TempDir()
 	claude := t.TempDir()
 	write(t, restored, map[string]string{
-		"by-id/home:-Code-foo/s.jsonl": "session\n",
+		"by-id/home_-Code-foo/s.jsonl": "session\n", // path-safe identity (':' -> '_'), as push writes it
 		"history.jsonl":                "hist\n",
 	})
 	rep, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", manifest.New())
@@ -48,7 +48,7 @@ func TestLayDownReHomesUnderHomeIdentity(t *testing.T) {
 func TestLayDownHonorsOverride(t *testing.T) {
 	restored := t.TempDir()
 	claude := t.TempDir()
-	write(t, restored, map[string]string{"by-id/home:-Code-foo/s.jsonl": "x\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/s.jsonl": "x\n"})
 	m := manifest.New()
 	m.SetOverride("win-desktop", "home:-Code-foo", "/d/work/foo")
 	if _, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", m); err != nil {

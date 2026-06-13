@@ -372,13 +372,14 @@ No data is at risk: local is authoritative and additive snapshots can't delete i
   Since there are no prompts, `init` instead *prints* the password/recovery instruction and
   requires the caller to have supplied it explicitly (env/file/keychain) — it never invents or
   hides one. Optionally store it in the OS keychain. Document loudly in `init` output and `doctor`.
-- **Windows path handling (not yet verified on a live box).** Under-home cwds tokenize the same
-  as macOS (`C:\Users\u\…` → `-Users-u-…`, drive dropped — step-0 finding), so the identity layer
-  abstracts them away. Outside-home Windows paths keep the drive (`C:\work\foo` → `abs:C--work-foo`)
-  and don't resolve on Unix — accepted. **Known blocker for Windows push:** the staging dir name
-  `by-id/home:-Code-foo` contains a `:`, which NTFS forbids in filenames — so push would fail on
-  Windows until the identity is given a filesystem-safe encoding for the `by-id/` path component
-  (e.g. escape `:` → `__`, decode on restore). Must be fixed before claiming Windows support.
+- **Windows path handling (logic done; not yet verified on a live box).** Under-home cwds tokenize
+  the same as macOS (`C:\Users\u\…` → `-Users-u-…`, drive dropped — step-0 finding), so the identity
+  layer abstracts them away. Outside-home Windows paths keep the drive (`C:\work\foo` →
+  `abs:C--work-foo`) and don't resolve on Unix — accepted. The NTFS-illegal `:` in the staging dir
+  name is **handled**: `identity.PathSafe`/`FromPathSafe` map the scheme `:` ⇄ `_` for the `by-id/`
+  path component only (unambiguous — `Encode` never emits `_`), so push writes `by-id/home_-Code-foo`
+  while the canonical `home:-Code-foo` stays the manifest key and `mnemo map` argument. What remains
+  is a real Mac⇄Windows run to confirm the reverse-engineered `EncodedHome` drive-strip on a live box.
 
 ---
 

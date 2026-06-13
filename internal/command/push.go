@@ -49,7 +49,8 @@ func projectIdentityMapper(encHome string) stage.Mapper {
 		}
 		enc, tail := rest[:slash], rest[slash+1:]
 		id := identity.FromEncoded(enc, encHome)
-		return filepath.FromSlash("by-id/" + string(id) + "/" + tail)
+		// PathSafe so the dir name is legal on every filesystem (NTFS forbids the scheme ':').
+		return filepath.FromSlash("by-id/" + identity.PathSafe(id) + "/" + tail)
 	}
 }
 

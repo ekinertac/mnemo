@@ -97,3 +97,19 @@ func ToEncoded(id Identity, encodedHome string) (string, bool) {
 	}
 	return "", false
 }
+
+// PathSafe renders an identity as a directory-name-safe string for use as the `by-id/<…>/`
+// staging component. The only filesystem-hostile character an identity can contain is the
+// scheme separator ':' (illegal in NTFS filenames); the encoded tail is already [A-Za-z0-9-].
+// We map ':' → '_', which is unambiguous because Encode never emits '_' (every non-alphanumeric
+// becomes '-'), so '_' in a path-safe segment can only have come from the scheme ':'. The
+// canonical identity (with ':') is still what lives in projects.json and `mnemo map` — only the
+// on-disk path component is rewritten. FromPathSafe is the inverse.
+func PathSafe(id Identity) string {
+	return strings.ReplaceAll(string(id), ":", "_")
+}
+
+// FromPathSafe inverts PathSafe: a `by-id/` directory name back to the canonical identity.
+func FromPathSafe(seg string) Identity {
+	return Identity(strings.ReplaceAll(seg, "_", ":"))
+}

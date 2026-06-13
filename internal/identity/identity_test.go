@@ -1,6 +1,9 @@
 package identity
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEncodeReplacesNonAlnumWithDash(t *testing.T) {
 	cases := map[string]string{
@@ -76,5 +79,28 @@ func TestToEncodedRoundTrip(t *testing.T) {
 	}
 	if _, ok := ToEncoded("garbage-no-scheme", home); ok {
 		t.Error("malformed identity should return ok=false")
+	}
+}
+
+// PathSafe must produce a directory-name-safe form (no ':' — illegal on NTFS) that round-trips
+// back to the canonical identity. Only the scheme ':' is touched; the encoded tail (already
+// [A-Za-z0-9-]) is untouched, and '_' never appears in an identity so the mapping is unambiguous.
+func TestPathSafeRoundTrip(t *testing.T) {
+	cases := map[Identity]string{
+		"home:-Code-foo":       "home_-Code-foo",
+		"abs:-opt-services-bar": "abs_-opt-services-bar",
+		"home:":                "home_", // home root
+	}
+	for id, wantSeg := range cases {
+		seg := PathSafe(id)
+		if seg != wantSeg {
+			t.Errorf("PathSafe(%q) = %q, want %q", id, seg, wantSeg)
+		}
+		if strings.ContainsRune(seg, ':') {
+			t.Errorf("PathSafe(%q) still contains ':' — illegal on NTFS", id)
+		}
+		if back := FromPathSafe(seg); back != id {
+			t.Errorf("FromPathSafe(%q) = %q, want %q", seg, back, id)
+		}
 	}
 }
