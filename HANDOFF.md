@@ -42,21 +42,31 @@ writing code.**
 
 ## Status
 
-Greenfield. Only scaffolding exists:
-- `~/Code/mnemo/` — git initialized, no commits yet.
-- `docs/DESIGN.md` — full design (the source of truth for *what* to build).
-- `HANDOFF.md` — this file.
-- No Go code, no `go.mod` yet.
+**M0–M2 built** on branch `m2-project-identity` (Go, stdlib-only, shells out to `restic`):
+- **M0** — `init`/`push`/`pull`/`log` shelling restic; engine + local-repo path proven.
+- **M1** — ephemeral filter (`internal/filter`, allowlist) + staging tree (`internal/stage`).
+  Sessions-only boundary is structural. Includes the legacy `transcripts/` store.
+- **M2** — project identity (`internal/identity`), slim `projects.json` (`internal/manifest`),
+  identity-keyed staging, resume-aware lay-down (`internal/restore`), plus `map`/`projects`/
+  `machines`. Cross-home re-homing + machine accumulation covered by tests.
+- Default test suite is offline (`go test ./...`); the cross-home integration test is
+  build-tagged: `go test -tags e2e ./...` (needs `restic`).
+- Specs/plans live under `docs/superpowers/{specs,plans}/`.
 
-## First steps (suggested — DESIGN §9 has the full milestone plan)
+**Not yet done:** M3 (append-merge for `.jsonl`/`history.jsonl`), M4 (prune/verify/doctor),
+M5 (keychain, polish). **Still pending verification:** a real **Mac⇄Windows** resume — the
+`EncodedHome` Windows drive-strip is reverse-engineered from one observed dir (unit-tested by
+injecting `encodedHome`, but not yet run on a live Windows box). Also not yet exercised against
+a real S3/B2 backend (only local restic repos so far).
 
-1. `go mod init github.com/ekinertac/mnemo` (confirm the module path with the user).
-2. Install `restic` (`brew install restic`) and confirm `restic version`.
-3. **M0 spike:** a `mnemo push` / `mnemo pull` that just shells `restic backup` / `restic
-   restore` of `~/.claude/projects` against a B2 test repo. Prove the engine + backend path
-   end-to-end before adding any Claude logic.
-4. Then M1 (ephemeral filter + staging tree) → M2 (project identity + resume-aware restore,
-   the headline feature). Ship M0–M2 before retiring claude-sync.
+## Hard-won fact: Claude's cwd encoding (drove the whole M2 identity design)
+
+Claude names `~/.claude/projects/<encoded-cwd>` by replacing **every non-alphanumeric character
+with `-`** (`[^A-Za-z0-9]→-`), case preserved. It is **lossy** (`age.sh`, `age-sh`, `age sh` all
+→ `age-sh`). A Windows user-profile path encodes *without* its drive (`C:\Users\u\…` →
+`-Users-u-…`). Because decoding is impossible, Mnemo's identity works entirely in this encoded
+space: identity = encoded cwd with the encoded-home prefix tokenized (`home:-Code-foo` /
+`abs:-…`). See DESIGN §4.4 and the M2 spec.
 
 ## Key external facts the new session needs
 

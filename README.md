@@ -16,10 +16,13 @@ append-only logs, and laying sessions back down where `claude --resume` will fin
 
 ## Status
 
-Early design. Nothing built yet.
+Early days, but the core works: **M0–M2 are built** (on the `m2-project-identity` branch) —
+filtered, identity-keyed snapshots and resume-aware restore that re-homes a session onto
+another machine. Append-merge, retention/verify/doctor, and polish (M3–M5) are still to come,
+and a real Mac⇄Windows resume is still to be verified.
 
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, rationale, and the milestone plan.
-- **[HANDOFF.md](HANDOFF.md)** — context for picking the project up from zero.
+- **[HANDOFF.md](HANDOFF.md)** — context for picking the project up.
 
 ## Name
 

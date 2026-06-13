@@ -47,6 +47,15 @@ The finding decides one representation choice (§3). If the encoding turns out r
 *may* use a human-readable identity (`path:~/Code/foo`); if lossy, identity stays in
 encoded-tail form. **The encoded-space round-trip works either way** and is the safe default.
 
+> **RESOLVED (step 0 done, from real Mac+Windows dirs):** Claude encodes a cwd by replacing
+> every non-alphanumeric character with `-` (`[^A-Za-z0-9]→-`), preserving case. Evidence:
+> `/Users/ekinertac/.dotfiles` → `-Users-ekinertac--dotfiles`; `…/Sublime Text/…` →
+> `…-Sublime-Text-…`. It is **lossy and irreversible** (`age.sh`/`age-sh`/`age sh` all →
+> `age-sh`), so identity stays in **encoded-tail form** (`home:-Code-foo` / `abs:-…`) — the
+> readable `path:~/…` form is unrecoverable. A Windows user-profile path encodes *without* its
+> drive (`C:\Users\u\…` → `-Users-u-…`), so same-username home prefixes match Mac↔Windows.
+> Consequence: NFC normalization is **unnecessary** (non-ASCII already collapses to `-`).
+
 ## 3. Identity resolver — `internal/identity`
 
 Single responsibility: encoded-cwd ⇄ identity ⇄ encoded-cwd, plus the under-home/outside-home
@@ -60,7 +69,8 @@ Proposed API (representation finalized after step 0):
 type Identity string
 
 // FromEncoded computes the identity for a Claude projects/<encoded> dir name, given this
-// machine's encoded-home prefix. Applies NFC normalization; comparison is case-insensitive.
+// machine's encoded-home prefix. Comparison is case-insensitive with a '-' separator boundary.
+// (NFC normalization is unnecessary — Claude's encoding already collapses non-ASCII to '-'.)
 func FromEncoded(encodedCwd, encodedHome string) Identity
 
 // ToEncoded turns an identity back into THIS machine's encoded-cwd dir name (the inverse of
@@ -72,13 +82,10 @@ func ToEncoded(id Identity, encodedHome string) (string, bool)   // bool=false �
 func EncodedHome(home string) string
 ```
 
-**Representation note (reconciling with `docs/DESIGN.md §4.4`):** the design doc writes
-identities in the readable `path:~/Code/foo` form. That is the *conceptual/display* target. The
-*stored* form is decided by step 0: if Claude's encoding is reversible we adopt `path:~/…`
-verbatim; if it is lossy we store the encoded tail (`home:-Code-foo`) and only render the
-readable form best-effort. Either way `mnemo map` accepts the canonical stored form, and
-whichever is chosen, DESIGN.md §4.4's examples get aligned to match once step 0 settles it.
-This spec uses the encoded-tail form in examples because it is the safe default.
+**Representation (resolved):** step 0 confirmed Claude's encoding is lossy, so the stored —
+and only — identity form is the **encoded tail** (`home:-Code-foo`, `abs:-opt-services-bar`).
+`mnemo map` accepts this canonical form. `docs/DESIGN.md §4.4` and principle 4 have been aligned
+to it (the earlier `path:~/…` readable form is not reconstructable and is gone from the docs).
 
 Normalization (correctness, per `docs/DESIGN.md §4.4`):
 - canonicalize `$HOME` before deriving the encoded-home prefix;
