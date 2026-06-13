@@ -98,12 +98,27 @@ func resolveRepo(flagRepo string) (restic.Repo, string) {
 	return restic.Repo{}, "(unset — set --repo, $MNEMO_REPO, or $RESTIC_REPOSITORY)"
 }
 
-// defaultProjectsDir is the source of truth for a push at M0: the raw Claude sessions tree.
-// Later milestones replace this with a filtered, identity-keyed staging tree (DESIGN §5.4).
-func defaultProjectsDir() (string, error) {
+// defaultClaudeDir is the source root a push reads from: the whole ~/.claude tree. The
+// ephemeral filter (internal/filter) decides what within it is durable — push never relies
+// on this pointing at only session data, so widening from M0's projects/-only view to the
+// full tree is safe (plans/, tasks/, history.jsonl are now picked up too).
+func defaultClaudeDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot resolve home dir: %w", err)
 	}
-	return filepath.Join(home, ".claude", "projects"), nil
+	return filepath.Join(home, ".claude"), nil
+}
+
+// stageRootDir is the fixed location Mnemo materializes its staging tree into before handing
+// it to restic. It is intentionally STABLE across pushes (not a random temp dir): restic
+// detects a parent snapshot by backup path, so a constant path lets incremental pushes skip
+// rescanning unchanged files. It lives under the user cache dir (same filesystem as ~/.claude
+// on a normal setup, so staging can hardlink instead of copy). The tree is rebuilt each push.
+func stageRootDir() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve cache dir for staging: %w", err)
+	}
+	return filepath.Join(cache, "mnemo", "stage"), nil
 }
