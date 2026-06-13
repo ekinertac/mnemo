@@ -1,13 +1,15 @@
 // push.go implements `mnemo push`: snapshot Claude session data into the restic repo.
 //
-// The M1 pipeline is: build a filtered staging tree from ~/.claude (internal/stage, which
-// applies the ephemeral filter), then `restic backup` that staging tree. Only durable
-// session data reaches restic — scratch and config are pruned before the engine ever sees
-// them (DESIGN §5.1/§5.4). The staging tree mirrors the ~/.claude layout for now; M2 re-keys
-// it by project identity (DESIGN §5.2) so snapshots become machine-independent.
+// The pipeline is: build a filtered staging tree from ~/.claude (internal/stage, which applies
+// the ephemeral filter), re-key its project sessions by identity, then `restic backup` that
+// staging tree. Only durable session data reaches restic — scratch and config are pruned before
+// the engine ever sees them (DESIGN §5.1/§5.4). The staging mapper rewrites
+// projects/<encoded-cwd>/<rest> to by-id/<identity>/<rest> (internal/identity), so snapshots are
+// machine-independent and a session pushed here resumes on another machine (DESIGN §5.2).
 //
-// Snapshots are tagged host=<machine> and mnemo=<schema-version> so the snapshot graph is
-// self-describing and later filtering by device/version is possible (DESIGN §4.3).
+// Each push also stamps this host into projects.json in the staging root (internal/manifest) so
+// the snapshot records which devices have pushed. Snapshots are tagged host=<machine> and
+// mnemo=<schema-version> so the snapshot graph is self-describing (DESIGN §4.3).
 package command
 
 import (
@@ -15,8 +17,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/ekinertac/mnemo/internal/filter"
+	"github.com/ekinertac/mnemo/internal/identity"
+	"github.com/ekinertac/mnemo/internal/manifest"
 	"github.com/ekinertac/mnemo/internal/restic"
 	"github.com/ekinertac/mnemo/internal/stage"
 )
@@ -56,10 +62,36 @@ func runPush(args []string) error {
 		return fmt.Errorf("clearing stale staging tree: %w", err)
 	}
 
+	// Build the encoded-home prefix so the mapper can tokenise projects/<encodedCwd> into
+	// by-id/<identity> — turning machine-specific path segments into portable project keys.
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	encHome := identity.EncodedHome(home)
+
+	// mapper rewrites `projects/<encoded-cwd>/<rest>` to `by-id/<identity>/<rest>`, making
+	// snapshots machine-independent. Everything else passes through unchanged (history.jsonl,
+	// top-level config, etc.). The filepath/slash dance handles Windows separators.
+	mapper := func(rel string) string {
+		relSlash := filepath.ToSlash(rel)
+		const pfx = "projects/"
+		if !strings.HasPrefix(relSlash, pfx) {
+			return rel
+		}
+		rest := relSlash[len(pfx):]
+		slash := strings.IndexByte(rest, '/')
+		if slash < 0 {
+			// bare `projects/<encoded>` with no tail — leave unchanged
+			return rel
+		}
+		enc, tail := rest[:slash], rest[slash+1:]
+		id := identity.FromEncoded(enc, encHome)
+		return filepath.FromSlash("by-id/" + string(id) + "/" + tail)
+	}
+
 	fmt.Printf("mnemo: building staging tree from %s\n", src)
-	// nil mapper = identity (M1 behavior: mirror source layout). M2 will supply a real mapper
-	// that rewrites projects/<encoded-cwd> to by-id/<identity> for machine-independent snapshots.
-	res, err := stage.Build(src, stageRoot, filter.Classifier{}, nil)
+	res, err := stage.Build(src, stageRoot, filter.Classifier{}, mapper)
 	if err != nil {
 		return err
 	}
@@ -83,10 +115,29 @@ func runPush(args []string) error {
 		return err
 	}
 
-	host, err := os.Hostname()
+	// hostID is shared by the manifest stamp and the restic tag — single lookup, no drift.
+	host, err := hostID()
 	if err != nil {
-		return fmt.Errorf("cannot resolve hostname for snapshot tag: %w", err)
+		return fmt.Errorf("cannot resolve hostname: %w", err)
 	}
+
+	// Stamp the manifest and write it into the staging tree so the snapshot captures it.
+	// Load is additive (missing file = empty manifest), so the first push on a clean repo works.
+	// Ensure stageRoot exists independently of whether a durable file was materialized into it,
+	// so manifest.Save (which does not mkdir) never fails on an unexpected layout.
+	if err := os.MkdirAll(stageRoot, 0o755); err != nil {
+		return fmt.Errorf("ensuring staging root for manifest: %w", err)
+	}
+	mpath := manifestStagePath(stageRoot)
+	man, err := manifest.Load(mpath)
+	if err != nil {
+		return err
+	}
+	man.TouchMachine(host, nowRFC3339())
+	if err := man.Save(mpath); err != nil {
+		return err
+	}
+
 	tags := []string{"host=" + host, "mnemo=" + schemaVersion}
 
 	repo, desc := resolveRepo(*repoFlag)

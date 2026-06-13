@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ekinertac/mnemo/internal/restic"
 )
@@ -122,3 +123,17 @@ func stageRootDir() (string, error) {
 	}
 	return filepath.Join(cache, "mnemo", "stage"), nil
 }
+
+// hostID returns this machine's hostname for snapshot tags and the manifest. Centralised here
+// so push.go has a single call site — the host value is shared between the manifest stamp and
+// the restic backup tag, and having one function makes the coupling obvious.
+func hostID() (string, error) { return os.Hostname() }
+
+// manifestStagePath is where projects.json lives inside the staging tree. The manifest is
+// written into the staging root before restic runs so it is versioned inside the snapshot,
+// making every backup self-describing (DESIGN §4.3).
+func manifestStagePath(stageRoot string) string { return filepath.Join(stageRoot, "projects.json") }
+
+// nowRFC3339 is the single point where wall-clock time enters the command layer. Keeping time
+// out of the internal/* packages keeps them deterministically testable with injected timestamps.
+func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
