@@ -25,7 +25,7 @@ in practice:
 | **No merge for append-only data.** Last-writer-wins per file. | `history.jsonl` conflicts can't be reconciled; a reported conflict didn't even write the promised `.conflict` file. |
 | **Per-file objects at scale.** Thousands of tiny individually-encrypted objects (many 33 bytes). | 2,230 objects per push; slow, per-request-costly, non-atomic (an interrupted push leaves the index inconsistent). Ephemeral scratch (subagent/workflow/tool-result files) synced as if durable. |
 | **Encryption defeats content-addressing.** Hashes plaintext locally, stores non-deterministic age ciphertext. | Can't verify or dedup remote objects without decrypting; no integrity guarantees. |
-| **Identity = filesystem path.** Projects keyed by the encoded absolute cwd (`-Users-ekinertac-Code-foo`). | Cross-machine resume only works by the *coincidence* that both machines use the same `~/Code/foo` layout. The `${HOME}` tokenization claude-sync added is a clever patch over the absence of real project identity. |
+| **Identity = encoded *absolute* cwd** (`-Users-ekinertac-Code-foo`), with `${HOME}` tokenization bolted on later. | Cross-machine resume worked only by *coincidence* of identical absolute layouts. *(Mnemo keeps a path model but makes home-relative `~`-tokenization the clean, deterministic primary identity — §4.4 — and pairs it with `mnemo map`; the data-losing failures below, not path-identity itself, are what Mnemo fixes structurally.)* |
 
 The deep mistake is modeling the task as **file mirroring**. The right model is
 **content-addressed, snapshot-based backup** — which is exactly what `restic` already is.
@@ -40,8 +40,14 @@ The deep mistake is modeling the task as **file mirroring**. The right model is
    Deletion happens only via an explicit, retention-governed `prune`.
 3. **Snapshots, not mirrors.** Every push is an immutable, timestamped snapshot. History and
    time-travel are free; "I lost a session" becomes a restore, not a tragedy.
-4. **Identity by project, not by path.** A project is identified by its git origin (or an
-   explicit identity), and *mapped* to whatever local path it occupies on each machine.
+4. **Identity by tokenized path, not by absolute path.** A project is identified by its path
+   with the home prefix collapsed to `~` (`path:~/Code/foo`), or by its absolute path when it
+   lives outside home (`path:/opt/bar`). Resolution is a pure, deterministic function of the
+   path — no git, no manifests, no guessing. This is machine-independent *for projects under
+   `~` that keep the same relative layout across machines*, which is the deliberate, documented
+   contract of a personal tool; `mnemo map` is the override for everything else. (Earlier
+   drafts keyed on git origin; that was dropped — see §4.4 — as disproportionate complexity for
+   a single-user tool, and re-addable later inside the one resolver function if ever needed.)
 5. **Merge-aware for append-only logs.** `.jsonl` transcripts and `history.jsonl` are event
    logs; reconcile by union, never by clobber.
 6. **Know what's ephemeral.** Subagent scratch, workflow temp, tool-results, lock/watermark
@@ -166,27 +172,59 @@ Every `mnemo push` creates one restic snapshot of a **staging tree** (see §5.4)
 Snapshots are immutable and additive. N machines pushing = N independent snapshot lineages in
 one repo, all deduplicated against each other.
 
-### 4.4 The project-identity manifest (`projects.json`)
+### 4.4 Project identity (a pure function) and `projects.json`
 
-Backed up inside the repo. Maps a **stable project identity** to per-machine local paths:
+**Identity is a deterministic function of the decoded cwd** — not a lookup, not git, not a
+manifest:
+
+```
+identity(cwd):
+  if cwd is under $HOME → path:~/<home-relative>     # path:~/Code/foo
+  else                  → path:<absolute>            # path:/opt/services/bar
+```
+
+The `~` token is the whole mechanism: it absorbs the platform-specific home prefix
+(`/Users/ekinertac`, `C:\Users\ekin`, `/home/ekin`), so two machines match **iff the
+home-relative portion agrees**, regardless of where home is. Cross-platform matching, stated
+exactly:
+
+| cwd location | identity | matches across machines when… |
+|---|---|---|
+| under `$HOME` | `path:~/Code/foo` | the **home-relative path** is the same — robust to different home locations; the reliable cross-platform case |
+| outside `$HOME` | `path:/opt/bar` | the **absolute path is byte-identical** — possible within an OS family (two Macs, Mac↔Linux on `/opt`), **never** Windows↔Unix (drive letters vs rooted paths) |
+
+This is intentionally weaker than the git-origin scheme earlier drafts described: a session
+only lands in the right project on another machine if that machine uses the same layout (under
+`~`) or the same absolute path. For a personal tool where the user controls both machines'
+layouts, that's an acceptable contract, and it buys a large simplification — no git URL
+normalization (`git@`/`https`/`ssh`/`.git`/ports/self-hosted), and no "git on machine A, no
+remote on machine B → identities diverge" bug class, because every machine resolves the same
+way. Identity is one function; a git branch can be added inside it later without touching the
+repo format, staging, or restore.
+
+**Correctness requirements** for the tokenizer (else cross-platform silently breaks):
+canonicalize `$HOME` (resolve symlinks and macOS's `/private` prefix, strip trailing slash)
+before computing the relative part; normalize Unicode to **NFC** (macOS stores filenames NFD);
+convert `\` → `/`; preserve case in the key but **compare case-insensitively** when resolving.
+
+**`projects.json`** (backed up in the repo) is therefore no longer the crux — because identity
+⇄ local path is a reversible function for the common case, restore just de-tokenizes `~` to
+this machine's home. The manifest shrinks to two jobs: per-machine **overrides** set by
+`mnemo map` (for projects that live at a different path on a given machine), and lightweight
+**machine bookkeeping** for the `machines`/`projects` views:
 
 ```json
 {
-  "git:github.com/ekinertac/humbl-ai": {
-    "darwin-mbp":   "/Users/ekinertac/Code/humbl-ai",
-    "win-desktop":  "C:\\Users\\ekin\\Code\\humbl-ai"
+  "version": 1,
+  "machines": {
+    "darwin-mbp":  { "lastSeen": "2026-06-13T21:00:00Z" },
+    "win-desktop": { "lastSeen": "2026-06-10T08:12:00Z" }
   },
-  "path:~/Downloads/scratch": { "darwin-mbp": "/Users/ekinertac/Downloads/scratch" }
+  "overrides": {
+    "darwin-mbp": { "path:~/Code/foo": "/Users/ekinertac/work/foo" }
+  }
 }
 ```
-
-Identity resolution order for a given `~/.claude/projects/<encoded-cwd>` dir:
-1. If the decoded cwd is inside a git work tree → `git:<normalized-origin-url>` (origin host +
-   path, lowercased, `.git` stripped). This is **machine-independent**.
-2. Else → `path:<home-relative-or-absolute>` fallback (the claude-sync `${HOME}` approach).
-
-This is the crux: identity is what makes a session from the Windows box land in the *right*
-project on the Mac even if the absolute paths differ.
 
 ---
 
@@ -197,18 +235,24 @@ Pure classification (§4.1). Applied when building the staging tree for backup. 
 conservative-durable for transcripts/memory, aggressive-skip for scratch. Fully overridable.
 
 ### 5.2 Project-identity remapping
-On **backup**: for each project dir, resolve identity (§4.4), record/update `projects.json`
-with this host's local path, and store the session under an identity-keyed path in the staging
-tree (e.g. `by-id/git_github.com_ekinertac_humbl-ai/<session>.jsonl`).
+On **backup**: for each `projects/<encoded-cwd>` dir, decode the cwd, compute `identity(cwd)`
+(§4.4), and stage the session under an identity-keyed path (e.g.
+`by-id/<encoded-identity>/<session>.jsonl`) rather than the machine-specific encoded cwd. The
+push also stamps this host's `lastSeen` in `projects.json`.
 
-On **restore**: resolve where *this* machine wants the project (from `projects.json`, or by
-scanning local git repos for a matching origin, or prompting), then materialize the transcript
-at the Claude-Code-expected location: `~/.claude/projects/<encoded-local-cwd>/<session>.jsonl`.
-This is what makes `claude --resume` actually find cross-machine sessions.
+On **restore**: turn each identity back into *this* machine's local cwd —
+1. if `projects.json` has an override for `(this host, identity)` → use it;
+2. else if the identity is `path:~/…` → de-tokenize `~` to this machine's `$HOME`;
+3. else (`path:/abs…`) → use the absolute path as-is **if it's valid for this OS**;
 
-> If no local path is known for an identity on this machine, the session is restored to a
-> holding area and surfaced by `mnemo projects --unmapped`; it becomes resumable once the repo
-> is cloned / the path is mapped. We **log** unmapped sessions loudly — never silently drop.
+then materialize the transcript at the Claude-Code-expected location
+`~/.claude/projects/<encoded-local-cwd>/<session>.jsonl`, so `claude --resume` finds it.
+
+> Under-home identities always resolve (placement is harmless even if the project dir doesn't
+> exist locally yet). Only an identity with no valid local mapping — e.g. a Windows `path:/abs`
+> or `C:\…` identity seen on a Mac — goes to a holding area, is surfaced by
+> `mnemo projects --unmapped`, and becomes resumable via `mnemo map`. We **log** unmapped
+> sessions loudly — never silently drop.
 
 ### 5.3 Transcript append-merge
 Session `.jsonl` files are append-only event logs. Same session UUID edited on two machines is
@@ -301,8 +345,11 @@ No data is at risk: local is authoritative and additive snapshots can't delete i
 
 - **restic library vs shelling out.** Start by shelling out. Measure; embed later only if
   needed.
-- **Identity for non-git projects.** Fallback is path-based (home-relative token). Good enough;
-  document the limitation (same as claude-sync today).
+- **Identity is path-based for *all* projects (settled, not open).** Git-origin identity was
+  considered and dropped (§4.4): too much fragile URL-normalization for a personal tool, and it
+  introduced a git-on-one-machine-only divergence bug. Identity is `path:~/…` under home,
+  `path:/abs` outside. Limitation — cross-machine resume needs matching layout (or `mnemo map`)
+  — is accepted and documented. Re-addable later inside the single resolver function.
 - **Concurrent same-session edits across machines.** Rare. Append-merge handles the common
   case; `doctor` surfaces true conflicts. Never auto-clobber.
 - **Config/capabilities are out of scope (settled, not open).** `settings.json`, MCP, skills,
