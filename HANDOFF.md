@@ -49,15 +49,22 @@ writing code.**
 - **M2** — project identity (`internal/identity`), slim `projects.json` (`internal/manifest`),
   identity-keyed staging, resume-aware lay-down (`internal/restore`), plus `map`/`projects`/
   `machines`. Cross-home re-homing + machine accumulation covered by tests.
+- **M3** — append-merge (`internal/merge`): a divergent `.jsonl` at the lay-down destination is
+  union-merged (longest common prefix + timestamp-ordered union, never drop a line) instead of
+  clobbered. Wired into `restore.writeFile`; non-`.jsonl` stays last-write-wins.
 - Default test suite is offline (`go test ./...`); the cross-home integration test is
   build-tagged: `go test -tags e2e ./...` (needs `restic`).
+- **Real B2 backend works:** validated push/pull/log/machines against bucket
+  `claude-sync-mnemo-test` via `s3:`. Config at `~/.config/mnemo/b2.env` (source it); restic repo
+  password is in the macOS Keychain (`security find-generic-password -a mnemo -s mnemo-restic-b2 -w`).
 - Specs/plans live under `docs/superpowers/{specs,plans}/`.
 
-**Not yet done:** M3 (append-merge for `.jsonl`/`history.jsonl`), M4 (prune/verify/doctor),
-M5 (keychain, polish). **Still pending verification:** a real **Mac⇄Windows** resume — the
-`EncodedHome` Windows drive-strip is reverse-engineered from one observed dir (unit-tested by
-injecting `encodedHome`, but not yet run on a live Windows box). Also not yet exercised against
-a real S3/B2 backend (only local restic repos so far).
+**Not yet done:** M4 (prune/verify/doctor — incl. surfacing genuinely-conflicting same-session
+lineages), M5 (config.toml, keychain UX, polish). **Still pending verification:** a real
+**Mac⇄Windows** resume — the `EncodedHome` Windows drive-strip is reverse-engineered from one
+observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live Windows box).
+The full `~/.claude` migration push to a production B2 bucket also hasn't been done (so far only
+a small synthetic tree has been pushed to the `claude-sync-mnemo-test` bucket).
 
 **Windows NTFS path safety — fixed.** The staging dir name now uses a filesystem-safe identity
 (`identity.PathSafe`/`FromPathSafe` map the scheme `:` ⇄ `_`, so push writes `by-id/home_-Code-foo`,

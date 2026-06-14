@@ -102,6 +102,43 @@ func TestLayDownPassesThroughNonProjectData(t *testing.T) {
 	}
 }
 
+// An existing .jsonl at the destination must be UNION-merged with the incoming one (M3), not
+// clobbered — the fix for claude-sync's last-writer-wins data loss.
+func TestLayDownMergesExistingJSONL(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	const a = `{"timestamp":"2026-01-01T00:00:01Z","v":"A"}`
+	const b = `{"timestamp":"2026-01-01T00:00:02Z","v":"B"}`
+	const c = `{"timestamp":"2026-01-01T00:00:03Z","v":"C"}`
+	// Local already has A, C; the incoming snapshot has A, B. Neither side may lose a line.
+	write(t, claude, map[string]string{"history.jsonl": a + "\n" + c + "\n"})
+	write(t, restored, map[string]string{"history.jsonl": a + "\n" + b + "\n"})
+
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "history.jsonl"))
+	want := a + "\n" + b + "\n" + c + "\n" // union, chronological
+	if string(got) != want {
+		t.Errorf("merged history =\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A non-.jsonl existing file is still last-write-wins (only append-only logs merge).
+func TestLayDownOverwritesNonJSONL(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, claude, map[string]string{"by-id/home_-Code-foo/memory/note.md": "old\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/note.md": "new\n"})
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "note.md"))
+	if string(got) != "new\n" {
+		t.Errorf("non-jsonl = %q, want overwrite to \"new\\n\"", got)
+	}
+}
+
 // A file directly under by-id/ (no identity subdir) must be surfaced in Unmapped, never
 // silently dropped — the never-drop invariant.
 func TestLayDownSurfacesMalformedByID(t *testing.T) {

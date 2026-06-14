@@ -21,6 +21,7 @@ import (
 
 	"github.com/ekinertac/mnemo/internal/identity"
 	"github.com/ekinertac/mnemo/internal/manifest"
+	"github.com/ekinertac/mnemo/internal/merge"
 )
 
 type Report struct {
@@ -96,11 +97,25 @@ func ResolveLocal(id identity.Identity, host, encodedHome string, m *manifest.Ma
 	return identity.ToEncoded(id, encodedHome)
 }
 
-// writeFile copies src to dst (creating parents). M2 policy: last write wins at file level;
-// M3 replaces this with append-merge for .jsonl logs.
+// writeFile lays the incoming file (src) down at dst, creating parents. Conflict policy (M3): if
+// dst already exists AND both files are append-only JSONL logs, union-merge them (merge.JSONL) so
+// neither machine's appended lines are lost — the structural fix for claude-sync's last-writer-wins
+// data loss. Every other case (new file, or a non-.jsonl like memory/*.md) is last-write-wins.
 func writeFile(src, dst string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
+	}
+	if strings.HasSuffix(dst, ".jsonl") {
+		if local, err := os.ReadFile(dst); err == nil {
+			incoming, err := os.ReadFile(src)
+			if err != nil {
+				return err
+			}
+			return os.WriteFile(dst, merge.JSONL(local, incoming), 0o644)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		// dst absent — fall through to a plain copy.
 	}
 	in, err := os.Open(src)
 	if err != nil {
