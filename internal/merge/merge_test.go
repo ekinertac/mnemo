@@ -81,6 +81,20 @@ func TestJSONLEmptySides(t *testing.T) {
 	}
 }
 
+// history.jsonl uses INTEGER ms-epoch timestamps (not ISO strings). They must order
+// numerically — 10000 sorts after 2000, which raw lexicographic order on the digits gets wrong.
+func TestJSONLNumericTimestamps(t *testing.T) {
+	n1 := `{"timestamp":1000,"v":"A"}`
+	n2 := `{"timestamp":2000,"v":"B"}`
+	n3 := `{"timestamp":10000,"v":"C"}` // 5 digits: numerically > 2000 but lexically "10000" < "2000"
+	local := lines(n1, n3)
+	incoming := lines(n1, n2)
+	want := lines(n1, n2, n3) // chronological: 1000 < 2000 < 10000
+	if got := JSONL(local, incoming); string(got) != string(want) {
+		t.Errorf("numeric-ts merge =\n%s\nwant\n%s", got, want)
+	}
+}
+
 // Same timestamp on two distinct lines: deterministic order (local before incoming, stable).
 func TestJSONLStableOnEqualTimestamp(t *testing.T) {
 	lEq := `{"timestamp":"2026-01-01T00:00:05Z","v":"L"}`

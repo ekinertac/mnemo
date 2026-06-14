@@ -17,6 +17,7 @@ package merge
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 )
@@ -79,14 +80,27 @@ func splitLines(b []byte) []string {
 	return out
 }
 
-// tsKey returns a line's `timestamp` for ordering. Lines that don't parse or lack a timestamp get
-// a high sentinel so they sort after all real events (deterministically, via the stable sort).
+// tsKey returns a sortable key from a line's `timestamp`. Claude uses two encodings: transcripts
+// carry an ISO-8601 string (`"2026-05-10T18:58:53.316Z"`, fixed-width UTC so lexicographic order is
+// chronological), while history.jsonl carries an integer ms-since-epoch (`1762302821544`). The
+// integer is zero-padded to 20 digits so lexicographic order matches numeric order (otherwise
+// "10000" would sort before "2000"). Within a single file the encoding is homogeneous, so keys are
+// never compared across the two forms. Lines that lack/!parse a timestamp get a high sentinel so
+// they sort after real events (deterministically, via the stable sort).
 func tsKey(line string) string {
 	var e struct {
-		Timestamp string `json:"timestamp"`
+		Timestamp json.RawMessage `json:"timestamp"`
 	}
-	if json.Unmarshal([]byte(line), &e) == nil && e.Timestamp != "" {
-		return e.Timestamp
+	if json.Unmarshal([]byte(line), &e) != nil || len(e.Timestamp) == 0 {
+		return "￿"
+	}
+	var s string
+	if json.Unmarshal(e.Timestamp, &s) == nil && s != "" {
+		return s // ISO-8601 string (transcripts)
+	}
+	var n int64
+	if json.Unmarshal(e.Timestamp, &n) == nil {
+		return fmt.Sprintf("%020d", n) // integer ms-epoch (history.jsonl)
 	}
 	return "￿"
 }

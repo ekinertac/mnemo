@@ -13,6 +13,7 @@
 package restore
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -111,24 +112,44 @@ func writeFile(src, dst string) error {
 			if err != nil {
 				return err
 			}
-			return os.WriteFile(dst, merge.JSONL(local, incoming), 0o644)
-		} else if !os.IsNotExist(err) {
+			return writeAtomic(dst, func(w io.Writer) error {
+				_, err := w.Write(merge.JSONL(local, incoming))
+				return err
+			})
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		// dst absent — fall through to a plain copy.
 	}
-	in, err := os.Open(src)
+	return writeAtomic(dst, func(w io.Writer) error {
+		in, err := os.Open(src)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		_, err = io.Copy(w, in)
+		return err
+	})
+}
+
+// writeAtomic writes via a temp file in dst's directory, then renames over dst. The rename is
+// atomic on a single filesystem, so a crash mid-write can never leave a truncated session log —
+// the integrity guarantee M3's merge exists to provide (a half-written history.jsonl would be
+// worse than the clobber it replaces). fill streams the payload into the temp file.
+func writeAtomic(dst string, fill func(io.Writer) error) error {
+	tmp, err := os.CreateTemp(filepath.Dir(dst), ".mnemo-*.tmp")
 	if err != nil {
 		return err
 	}
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
+	tmpName := tmp.Name()
+	if err := fill(tmp); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
 		return err
 	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
 		return err
 	}
-	return out.Close()
+	return os.Rename(tmpName, dst)
 }
