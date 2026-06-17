@@ -188,3 +188,35 @@ func (r Repo) RestoreSubpathInclude(ctx context.Context, snapshot, snapshotSubpa
 func (r Repo) Snapshots(ctx context.Context) error {
 	return r.run(ctx, "snapshots")
 }
+
+// Check verifies repository integrity (`restic check`). readData additionally re-reads and
+// re-hashes every pack (`--read-data`) — thorough but slow and bandwidth-heavy on remote backends.
+func (r Repo) Check(ctx context.Context, readData bool) error {
+	args := []string{"check"}
+	if readData {
+		args = append(args, "--read-data")
+	}
+	return r.run(ctx, args...)
+}
+
+// Forget runs `restic forget` with caller-built arguments (see command.forgetArgs). The argument
+// construction — including the dry-run/apply gate and per-host grouping — lives in the command
+// layer so the safety policy is testable; this method just executes it.
+func (r Repo) Forget(ctx context.Context, args []string) error {
+	return r.run(ctx, args...)
+}
+
+// SnapshotCount returns how many snapshots the repo holds (0 is valid). It doubles as a
+// reachability probe for `doctor`: an error means the repo couldn't be read (bad creds, network,
+// missing repo), while a clean 0 means reachable-but-empty.
+func (r Repo) SnapshotCount(ctx context.Context) (int, error) {
+	out, err := r.runCapture(ctx, "snapshots", "--json")
+	if err != nil {
+		return 0, err
+	}
+	var snaps []json.RawMessage
+	if err := json.Unmarshal([]byte(out), &snaps); err != nil {
+		return 0, fmt.Errorf("parsing restic snapshots json: %w", err)
+	}
+	return len(snaps), nil
+}

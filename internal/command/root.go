@@ -55,6 +55,12 @@ func Execute(args []string) int {
 		err = runProjects(rest)
 	case "machines":
 		err = runMachines(rest)
+	case "verify":
+		err = runVerify(rest)
+	case "prune":
+		err = runPrune(rest)
+	case "doctor":
+		err = runDoctor(rest)
 	case "help", "-h", "--help":
 		usage()
 		return 0
@@ -83,6 +89,9 @@ usage:
   mnemo map      <identity> <local-path>                           record a host-local path override (offline)
   mnemo projects [--repo PATH] [--unmapped]                        list project identities and local resolution
   mnemo machines [--repo PATH]                                     list machines that have pushed
+  mnemo verify   [--repo PATH] [--read-data]                       check repo integrity (restic check)
+  mnemo prune    [--repo PATH] --keep-* [--apply]                  apply retention (dry-run unless --apply)
+  mnemo doctor   [--repo PATH]                                     health report (restic, repo, machines)
 
 config:
   repo location:  --repo  >  $MNEMO_REPO  >  $RESTIC_REPOSITORY
