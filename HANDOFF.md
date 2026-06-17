@@ -51,7 +51,10 @@ writing code.**
   `machines`. Cross-home re-homing + machine accumulation covered by tests.
 - **M3** — append-merge (`internal/merge`): a divergent `.jsonl` at the lay-down destination is
   union-merged (longest common prefix + timestamp-ordered union, never drop a line) instead of
-  clobbered. Wired into `restore.writeFile`; non-`.jsonl` stays last-write-wins.
+  clobbered. Wired into `restore.writeFile` (atomic temp+rename); non-`.jsonl` stays last-write-wins.
+- **M4** — integrity + retention: `verify` (`restic check`), `doctor` (read-only health report),
+  and `prune` — the only deleting command, deliberately unforgiving: no `--keep-*` policy → refuses
+  (0 counts as unset), dry-run unless `--apply`, always `--group-by host`. `forgetArgs` is TDD'd.
 - Default test suite is offline (`go test ./...`); the cross-home integration test is
   build-tagged: `go test -tags e2e ./...` (needs `restic`).
 - **Real B2 backend works:** validated push/pull/log/machines against bucket
@@ -59,8 +62,10 @@ writing code.**
   password is in the macOS Keychain (`security find-generic-password -a mnemo -s mnemo-restic-b2 -w`).
 - Specs/plans live under `docs/superpowers/{specs,plans}/`.
 
-**Not yet done:** M4 (prune/verify/doctor — incl. surfacing genuinely-conflicting same-session
-lineages), M5 (config.toml, keychain UX, polish). **Still pending verification:** a real
+**Not yet done:** M5 (config.toml so backend/repo aren't passed via env each time, keychain UX,
+release builds, polish). Smaller follow-ups: silence the restic "restoring" line that
+`loadRepoManifest` leaks into `doctor`/`push` output; `doctor` could also surface unmapped
+identities (logic exists in `projects --unmapped`). **Still pending verification:** a real
 **Mac⇄Windows** resume — the `EncodedHome` Windows drive-strip is reverse-engineered from one
 observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live Windows box).
 The full `~/.claude` migration push to a production B2 bucket also hasn't been done (so far only
