@@ -68,8 +68,13 @@ release builds, polish). Smaller follow-ups: silence the restic "restoring" line
 identities (logic exists in `projects --unmapped`). **Still pending verification:** a real
 **Mac⇄Windows** resume — the `EncodedHome` Windows drive-strip is reverse-engineered from one
 observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live Windows box).
-The full `~/.claude` migration push to a production B2 bucket also hasn't been done (so far only
-a small synthetic tree has been pushed to the `claude-sync-mnemo-test` bucket).
+**Migration (Mac side) done:** the full real `~/.claude` is now snapshotted to B2 bucket
+`claude-sync-mnemo-test` (reused as production) — 481 durable files, 722 MiB → ~156 MiB stored,
+snapshot `e8547ccd`; verified with `restic check` + a spot-check round-trip. Remaining migration
+steps (DESIGN §7): on the **Windows** machine, `init` the same repo → `pull` → verify resume →
+`push`; then decommission claude-sync (keep its old bucket read-only as a cold backup). Do NOT
+retire claude-sync until Windows is also on Mnemo. No automatic/periodic push is set up yet —
+pushes are manual (`source ~/.config/mnemo/b2.env && mnemo push`).
 
 **Windows NTFS path safety — fixed.** The staging dir name now uses a filesystem-safe identity
 (`identity.PathSafe`/`FromPathSafe` map the scheme `:` ⇄ `_`, so push writes `by-id/home_-Code-foo`,
