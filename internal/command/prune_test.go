@@ -15,6 +15,34 @@ func TestForgetArgsRefusesEmptyPolicy(t *testing.T) {
 	}
 }
 
+// A keep count of 0 keeps none of that dimension — meaningless and dangerous, so mnemo treats it
+// as unset rather than forwarding `--keep-last 0` to restic. An all-zero policy is still refused
+// (the safety gate must not depend on restic's version-specific handling of 0). This also makes a
+// zero-value retention{} safe (refused), not a silent "keep nothing".
+func TestForgetArgsZeroIsUnset(t *testing.T) {
+	if _, err := forgetArgs(retention{}, true); err == nil {
+		t.Fatal("zero-value (all-zero) retention must be refused as empty")
+	}
+	args, err := forgetArgs(retention{last: 0, daily: 7}, true) // last=0 dropped, daily=7 kept
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slices.Contains(args, "--keep-last") {
+		t.Errorf("--keep-last 0 must be dropped: %v", args)
+	}
+	if !slices.Contains(args, "--keep-daily") {
+		t.Errorf("--keep-daily 7 must be present: %v", args)
+	}
+}
+
+// --prune is always present so retention actually reclaims space (never forget-without-prune).
+func TestForgetArgsAlwaysPrunes(t *testing.T) {
+	args, _ := forgetArgs(retention{last: 5}, true)
+	if !slices.Contains(args, "--prune") {
+		t.Errorf("--prune must always be present: %v", args)
+	}
+}
+
 // Dry-run is the default: without --apply, the forget carries --dry-run so nothing is removed.
 func TestForgetArgsDryRunByDefault(t *testing.T) {
 	args, err := forgetArgs(retention{last: 10, daily: -1, weekly: -1, monthly: -1, yearly: -1}, false)

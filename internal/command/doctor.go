@@ -12,6 +12,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ekinertac/mnemo/internal/restic"
@@ -92,7 +93,7 @@ func runDoctor(args []string) error {
 
 	// 2. repo configured.
 	repo, desc := resolveRepo(*repoFlag)
-	if repo.Repository == "" && desc[0] == '(' { // "(unset — ...)"
+	if repo.Repository == "" && strings.HasPrefix(desc, "(") { // "(unset — ...)"
 		rep.add("repo config", statusFail, desc)
 		printDoctor(rep)
 		return fmt.Errorf("doctor found problems")
@@ -118,9 +119,12 @@ func runDoctor(args []string) error {
 		}
 		rep.add("machines", statusOK, fmt.Sprintf("%d recorded", len(man.Machines)))
 		if d, ok := daysSince(newest, time.Now()); ok {
-			if d > staleAfterDays {
+			switch {
+			case d < 0:
+				rep.add("last push", statusWarn, "timestamp is in the future (clock skew?)")
+			case d > staleAfterDays:
 				rep.add("last push", statusWarn, fmt.Sprintf("%d days ago (> %d)", d, staleAfterDays))
-			} else {
+			default:
 				rep.add("last push", statusOK, fmt.Sprintf("%d days ago", d))
 			}
 		}

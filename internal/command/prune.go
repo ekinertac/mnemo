@@ -21,14 +21,18 @@ import (
 	"github.com/ekinertac/mnemo/internal/restic"
 )
 
-// retention is a restic keep-policy. -1 means "dimension unset"; within is empty when unset.
+// retention is a restic keep-policy. A dimension counts as set only when >= 1: the flag default is
+// -1, and a keep count of 0 ("keep none") is meaningless and dangerous, so mnemo treats 0 as unset
+// rather than forwarding `--keep-last 0` to restic. This also makes a zero-value retention{} empty
+// (refused), so the safety gate never depends on restic's version-specific handling of 0. within is
+// empty when unset.
 type retention struct {
 	last, daily, weekly, monthly, yearly int
 	within                               string
 }
 
 func (r retention) empty() bool {
-	return r.last < 0 && r.daily < 0 && r.weekly < 0 && r.monthly < 0 && r.yearly < 0 && r.within == ""
+	return r.last < 1 && r.daily < 1 && r.weekly < 1 && r.monthly < 1 && r.yearly < 1 && r.within == ""
 }
 
 // forgetArgs translates a retention policy into `restic forget` arguments. It returns an error for
@@ -41,7 +45,7 @@ func forgetArgs(r retention, apply bool) ([]string, error) {
 	}
 	args := []string{"forget", "--prune", "--group-by", "host"}
 	add := func(flag string, n int) {
-		if n >= 0 {
+		if n >= 1 { // 0/negative = unset; never forward a "keep 0" dimension
 			args = append(args, flag, strconv.Itoa(n))
 		}
 	}
