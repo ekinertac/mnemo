@@ -26,6 +26,9 @@ func TestStreamBackup(t *testing.T) {
 	if prog[1].FilesDone != 63 || prog[1].TotalFiles != 126 || prog[1].PercentDone != 0.5 {
 		t.Errorf("progress[1] wrong: %+v", prog[1])
 	}
+	if prog[1].BytesDone != 500 || prog[1].TotalBytes != 1000 {
+		t.Errorf("progress[1] byte counts wrong: %+v", prog[1])
+	}
 }
 
 // A nil callback is fine (caller doesn't want progress); summary still parses.
