@@ -16,13 +16,28 @@ append-only logs, and laying sessions back down where `claude --resume` will fin
 
 ## Status
 
-Early days, but the core works: **M0–M2 are built** (on the `m2-project-identity` branch) —
-filtered, identity-keyed snapshots and resume-aware restore that re-homes a session onto
-another machine. Append-merge, retention/verify/doctor, and polish (M3–M5) are still to come,
-and a real Mac⇄Windows resume is still to be verified.
+Working and in daily use on macOS. **M0–M5 are built:**
+
+- **Filtered, identity-keyed snapshots** — only durable session data (transcripts, per-project
+  memory, plans, tasks, history), keyed by a path-tokenized project identity so a session resumes
+  on another machine even when the absolute paths differ.
+- **Resume-aware restore** that lays sessions back where `claude --resume` expects them.
+- **Append-merge** for `.jsonl` logs — divergent histories union instead of clobber (never lose lines).
+- **Integrity & explicit retention** — `verify`, `doctor`, and a deliberately unforgiving `prune`.
+- **Config-driven** — a `config.json` with OS-keychain secret references; no env to source.
+- **Plain-language CLI** — clean summaries by default with a live progress counter, raw restic behind `-v`.
+
+Validated end-to-end against a real Backblaze B2 (S3) backend. Still to do: a live **Mac⇄Windows**
+resume (the Windows path encoding is unit-tested but not yet run on a real Windows box).
+
+```sh
+go build -o mnemo .
+mnemo push      # snapshot your sessions
+mnemo pull      # restore + lay them down on another machine
+mnemo doctor    # health check
+```
 
 - **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, rationale, and the milestone plan.
-- **[HANDOFF.md](HANDOFF.md)** — context for picking the project up.
 
 ## Name
 

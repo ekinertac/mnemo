@@ -63,7 +63,7 @@ writing code.**
 - Default test suite is offline (`go test ./...`); the cross-home integration test is
   build-tagged: `go test -tags e2e ./...` (needs `restic`).
 - **Real B2 backend works, no env sourcing needed:** `~/.config/mnemo/config.json` points at bucket
-  `claude-sync-mnemo-test` (`s3:`) and references three macOS Keychain entries (`mnemo-restic-b2`
+  `<your-bucket>` (`s3:`) and references three macOS Keychain entries (`mnemo-restic-b2`
   password, `mnemo-b2-keyid`, `mnemo-b2-secret`). Just run `mnemo <cmd>`. (The old
   `~/.config/mnemo/b2.env` is now redundant — delete it to keep secrets only in the Keychain.)
 - Specs/plans live under `docs/superpowers/{specs,plans}/`.
@@ -76,7 +76,7 @@ live overrides existed, so nothing to migrate. **Still pending verification:** a
 **Mac⇄Windows** resume — the `EncodedHome` Windows drive-strip is reverse-engineered from one
 observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live Windows box).
 **Migration (Mac side) done:** the full real `~/.claude` is now snapshotted to B2 bucket
-`claude-sync-mnemo-test` (reused as production) — 481 durable files, 722 MiB → ~156 MiB stored,
+`<your-bucket>` (reused as production) — 481 durable files, 722 MiB → ~156 MiB stored,
 snapshot `e8547ccd`; verified with `restic check` + a spot-check round-trip. Remaining migration
 steps (DESIGN §7): on the **Windows** machine, `init` the same repo → `pull` → verify resume →
 `push`; then decommission claude-sync (keep its old bucket read-only as a cold backup). Do NOT
