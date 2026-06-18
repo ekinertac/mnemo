@@ -79,6 +79,18 @@ func TestSecretResolveEmptyErrors(t *testing.T) {
 	}
 }
 
+// A source that yields an empty value must error (clear message), not silently inject an empty
+// credential that restic later rejects with a confusing error.
+func TestSecretResolveEmptyValueErrors(t *testing.T) {
+	t.Setenv("EMPTY_SRC", "")
+	if _, err := (Secret{Env: "EMPTY_SRC"}).Resolve(); err == nil {
+		t.Error("a secret resolving to empty must error")
+	}
+	if _, err := (Secret{Command: []string{"printf", ""}}).Resolve(); err == nil {
+		t.Error("a command yielding empty output must error")
+	}
+}
+
 // ResolveEnv respects the resolution order: an env var already set wins over config (skipped).
 func TestResolveEnvSkipsAlreadySet(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "from-env")

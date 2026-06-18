@@ -95,8 +95,11 @@ usage:
   mnemo doctor   [--repo PATH]                                     health report (restic, repo, machines)
 
 config:
-  repo location:  --repo  >  $MNEMO_REPO  >  $RESTIC_REPOSITORY
-  repo password:  $RESTIC_PASSWORD / $RESTIC_PASSWORD_FILE / $RESTIC_PASSWORD_COMMAND
+  config file:    ~/.config/mnemo/config.json  (override with $MNEMO_CONFIG)
+                  may set: repo, host, exclude globs, and secret references (command/file/env)
+  repo location:  --repo  >  $MNEMO_REPO  >  $RESTIC_REPOSITORY  >  config "repo"
+  secrets:        env wins over config; config refs fetch from e.g. the OS keychain, never plaintext
+  repo password:  $RESTIC_PASSWORD / $RESTIC_PASSWORD_FILE / $RESTIC_PASSWORD_COMMAND, or config
                   (never a CLI flag — mnemo never prompts)
 `)
 }

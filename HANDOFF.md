@@ -55,17 +55,24 @@ writing code.**
 - **M4** — integrity + retention: `verify` (`restic check`), `doctor` (read-only health report),
   and `prune` — the only deleting command, deliberately unforgiving: no `--keep-*` policy → refuses
   (0 counts as unset), dry-run unless `--apply`, always `--group-by host`. `forgetArgs` is TDD'd.
+- **M5 (config)** — `internal/config` loads `~/.config/mnemo/config.json` (JSON, not TOML; dir is
+  XDG `~/.config`, NOT `os.UserConfigDir()`/macOS Library). Holds repo URL, host, exclude globs, and
+  *secret references* (a retrieval command/file/env — never plaintext). `resolveRepo` consults it
+  and sets restic's env from keychain-resolved secrets; env still wins. So `mnemo push` etc. work
+  with **no env sourcing**.
 - Default test suite is offline (`go test ./...`); the cross-home integration test is
   build-tagged: `go test -tags e2e ./...` (needs `restic`).
-- **Real B2 backend works:** validated push/pull/log/machines against bucket
-  `claude-sync-mnemo-test` via `s3:`. Config at `~/.config/mnemo/b2.env` (source it); restic repo
-  password is in the macOS Keychain (`security find-generic-password -a mnemo -s mnemo-restic-b2 -w`).
+- **Real B2 backend works, no env sourcing needed:** `~/.config/mnemo/config.json` points at bucket
+  `claude-sync-mnemo-test` (`s3:`) and references three macOS Keychain entries (`mnemo-restic-b2`
+  password, `mnemo-b2-keyid`, `mnemo-b2-secret`). Just run `mnemo <cmd>`. (The old
+  `~/.config/mnemo/b2.env` is now redundant — delete it to keep secrets only in the Keychain.)
 - Specs/plans live under `docs/superpowers/{specs,plans}/`.
 
-**Not yet done:** M5 (config.toml so backend/repo aren't passed via env each time, keychain UX,
-release builds, polish). Smaller follow-ups: silence the restic "restoring" line that
-`loadRepoManifest` leaks into `doctor`/`push` output; `doctor` could also surface unmapped
-identities (logic exists in `projects --unmapped`). **Still pending verification:** a real
+**Not yet done:** M5 polish (release builds; `init` could write a config.json skeleton; a `--config`
+flag). Smaller follow-ups: silence the restic "restoring" line that `loadRepoManifest` leaks into
+`doctor`/`push` output; `doctor` could surface unmapped identities. Note: `mnemo map`'s local
+override store moved with M5 from macOS `~/Library/Application Support` to `~/.config/mnemo` — no
+live overrides existed, so nothing to migrate. **Still pending verification:** a real
 **Mac⇄Windows** resume — the `EncodedHome` Windows drive-strip is reverse-engineered from one
 observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live Windows box).
 **Migration (Mac side) done:** the full real `~/.claude` is now snapshotted to B2 bucket
@@ -73,8 +80,8 @@ observed dir (unit-tested by injecting `encodedHome`, but not yet run on a live 
 snapshot `e8547ccd`; verified with `restic check` + a spot-check round-trip. Remaining migration
 steps (DESIGN §7): on the **Windows** machine, `init` the same repo → `pull` → verify resume →
 `push`; then decommission claude-sync (keep its old bucket read-only as a cold backup). Do NOT
-retire claude-sync until Windows is also on Mnemo. No automatic/periodic push is set up yet —
-pushes are manual (`source ~/.config/mnemo/b2.env && mnemo push`).
+retire claude-sync until Windows is also on Mnemo. **The user explicitly does NOT want
+automatic/periodic push** — pushes are manual and deliberate (just `mnemo push`, no env sourcing).
 
 **Windows NTFS path safety — fixed.** The staging dir name now uses a filesystem-safe identity
 (`identity.PathSafe`/`FromPathSafe` map the scheme `:` ⇄ `_`, so push writes `by-id/home_-Code-foo`,

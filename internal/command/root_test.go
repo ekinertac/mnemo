@@ -5,9 +5,14 @@ import (
 	"testing"
 )
 
+// resetConfigCache clears the package-level config cache so tests that exercise config loading
+// don't leak a prior test's config (the CLI loads once per process, but tests share the binary).
+func resetConfigCache() { cachedConfig = nil }
+
 // Guards the macOS regression: the config dir must be ~/.config (XDG), NOT os.UserConfigDir()
 // which on macOS is ~/Library/Application Support. DESIGN §6.1 specifies ~/.config/mnemo.
 func TestConfigFilePathHonorsXDG(t *testing.T) {
+	resetConfigCache()
 	t.Setenv("MNEMO_CONFIG", "")
 	t.Setenv("XDG_CONFIG_HOME", "/xdg")
 	got := configFilePath()

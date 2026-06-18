@@ -317,16 +317,36 @@ effect of a normal push — `prune` is the only path to deletion, explicit and r
 
 Resolution order (highest wins): **CLI flags → environment → config file → defaults.**
 
-- **Config file:** `~/.config/mnemo/config.toml` (override with `--config` / `MNEMO_CONFIG`).
-  Non-secret settings: backend kind + endpoint/region/bucket, ephemeral globs, retention
-  policy, this machine's `host` id. (No scope setting — Mnemo is sessions-only by definition.)
+- **Config file:** `~/.config/mnemo/config.json` (override with `$MNEMO_CONFIG`). Implemented as
+  **JSON** (stdlib, zero deps — not TOML, which would need a third-party parser). The dir is
+  `$XDG_CONFIG_HOME/mnemo` or `~/.config/mnemo` explicitly, *not* `os.UserConfigDir()` (which on
+  macOS resolves to `~/Library/Application Support`). Holds only **non-secret** settings —
+  `repo` URL, `host` id, ephemeral `exclude` globs — plus **secret references** (see below). No
+  scope setting — Mnemo is sessions-only by definition. Example:
+  ```json
+  {
+    "host": "ekin-mini",
+    "repo": "s3:https://s3.eu-central-003.backblazeb2.com/my-bucket",
+    "secrets": {
+      "RESTIC_PASSWORD":       {"command": ["security","find-generic-password","-a","mnemo","-s","mnemo-restic","-w"]},
+      "AWS_ACCESS_KEY_ID":     {"command": ["security","find-generic-password","-a","mnemo","-s","mnemo-b2-keyid","-w"]},
+      "AWS_SECRET_ACCESS_KEY": {"command": ["security","find-generic-password","-a","mnemo","-s","mnemo-b2-secret","-w"]}
+    }
+  }
+  ```
 - **Environment:** `MNEMO_*` for Mnemo settings; backend creds via the providers' standard envs
   (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_ENDPOINT_URL`, `B2_ACCOUNT_ID`/`B2_ACCOUNT_KEY`,
-  etc.) passed straight through to restic.
-- **Repo password (the encryption root):** never prompted. Use restic's own non-interactive
-  mechanisms — `RESTIC_PASSWORD`, `RESTIC_PASSWORD_FILE`, or `RESTIC_PASSWORD_COMMAND` (e.g. a
-  keychain read) — or a Mnemo `--password-file` / OS-keychain reference. **Secrets are never
-  passed as plain CLI flags** (they leak via the process list); env/file/keychain/stdin only.
+  etc.) passed straight through to restic. **Env always wins over config** — a configured secret
+  whose env var is already set is left untouched.
+- **Secrets are references, never values.** config.json's `secrets` map each env-var name to a
+  *retrieval* — `{"command": [...]}` (argv, no shell — e.g. a macOS Keychain or Windows Credential
+  Manager call), `{"file": "..."}`, or `{"env": "..."}`. Mnemo resolves anything not already in the
+  environment and sets it on the restic child. This keeps **no plaintext credential in config**,
+  works cross-platform (each machine's config names its own OS's secret store), and mirrors restic's
+  own `RESTIC_PASSWORD_COMMAND` model. **Secrets are never passed as plain CLI flags.**
+- **Repo password (the encryption root):** never prompted. Supply via `RESTIC_PASSWORD` /
+  `RESTIC_PASSWORD_FILE` / `RESTIC_PASSWORD_COMMAND`, or a config `secrets` reference (e.g. a
+  keychain read). Lose it → data unrecoverable, by design.
 
 `mnemo init` simply materializes the config file and runs `restic init` (or attaches to an
 existing repo) using the above sources, validates connectivity, and exits. If something

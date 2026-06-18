@@ -57,26 +57,32 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
-// Resolve fetches the secret's value via its configured source.
+// Resolve fetches the secret's value via its configured source. An empty result is treated as an
+// error: injecting an empty credential would only surface later as a confusing restic auth failure.
 func (s Secret) Resolve() (string, error) {
+	var v string
 	switch {
 	case len(s.Command) > 0:
 		out, err := exec.Command(s.Command[0], s.Command[1:]...).Output()
 		if err != nil {
 			return "", fmt.Errorf("secret command %v: %w", s.Command, err)
 		}
-		return strings.TrimSpace(string(out)), nil
+		v = strings.TrimSpace(string(out))
 	case s.File != "":
 		b, err := os.ReadFile(s.File)
 		if err != nil {
 			return "", err
 		}
-		return strings.TrimSpace(string(b)), nil
+		v = strings.TrimSpace(string(b))
 	case s.Env != "":
-		return os.Getenv(s.Env), nil
+		v = os.Getenv(s.Env)
 	default:
 		return "", fmt.Errorf("secret has no source (set command, file, or env)")
 	}
+	if v == "" {
+		return "", fmt.Errorf("secret resolved to an empty value")
+	}
+	return v, nil
 }
 
 // ResolveEnv resolves every configured secret into an env map for the restic child process,
