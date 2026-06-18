@@ -220,6 +220,28 @@ func (r Repo) Forget(ctx context.Context, args []string) error {
 	return r.run(ctx, args...)
 }
 
+// RawDataSize returns the repository's ACTUAL footprint in bytes — the deduplicated, compressed
+// data restic stores (`restic stats --mode raw-data`). This is the real bytes-on-backend figure,
+// far smaller than any single snapshot's logical "restore size", and is what `mnemo log` surfaces
+// so users don't mistake the per-snapshot size for what's uploaded or stored.
+func (r Repo) RawDataSize(ctx context.Context) (int64, error) {
+	out, err := r.runCapture(ctx, "stats", "--mode", "raw-data", "--json")
+	if err != nil {
+		return 0, err
+	}
+	// `restic stats` prints a scan-progress line before the JSON on stdout; start at the object.
+	if i := strings.IndexByte(out, '{'); i >= 0 {
+		out = out[i:]
+	}
+	var s struct {
+		TotalSize int64 `json:"total_size"`
+	}
+	if err := json.Unmarshal([]byte(out), &s); err != nil {
+		return 0, fmt.Errorf("parsing restic stats json: %w", err)
+	}
+	return s.TotalSize, nil
+}
+
 // SnapshotCount returns how many snapshots the repo holds (0 is valid). It doubles as a
 // reachability probe for `doctor`: an error means the repo couldn't be read (bad creds, network,
 // missing repo), while a clean 0 means reachable-but-empty.
