@@ -27,7 +27,10 @@ func runInit(args []string) error {
 		return err
 	}
 
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("mnemo: initializing restic repo at %s\n", desc)
 	if err := repo.Init(ctx); err != nil {
 		return err

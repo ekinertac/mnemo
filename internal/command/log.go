@@ -24,7 +24,10 @@ func runLog(args []string) error {
 		return err
 	}
 
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("mnemo: snapshots in %s\n", desc)
 	return repo.Snapshots(ctx)
 }

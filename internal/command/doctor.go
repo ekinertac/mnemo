@@ -92,7 +92,10 @@ func runDoctor(args []string) error {
 	rep.add("restic", statusOK, "binary found")
 
 	// 2. repo configured.
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	if repo.Repository == "" && strings.HasPrefix(desc, "(") { // "(unset — ...)"
 		rep.add("repo config", statusFail, desc)
 		printDoctor(rep)

@@ -32,8 +32,28 @@ import (
 // NOT a secret, so it is safe to set as an env var for the child process. If empty, we
 // leave RESTIC_REPOSITORY untouched and let restic resolve the repo from its own
 // environment — this lets the spike run purely off `RESTIC_REPOSITORY`/`RESTIC_PASSWORD`.
+//
+// Env carries additional environment variables to set on the restic child — resolved by the
+// command layer from config (e.g. RESTIC_PASSWORD and AWS_* fetched from the OS keychain), so a
+// user need not export them by hand. The command layer only puts here secrets NOT already in the
+// process environment, so these never shadow an explicit env override.
 type Repo struct {
 	Repository string
+	Env        map[string]string
+}
+
+// childEnv builds the environment for a restic child: the inherited environment, plus
+// RESTIC_REPOSITORY when set, plus any config-resolved Env. Appended last so they take effect,
+// without duplicating values the command layer already found in the environment.
+func (r Repo) childEnv() []string {
+	env := os.Environ()
+	if r.Repository != "" {
+		env = append(env, "RESTIC_REPOSITORY="+r.Repository)
+	}
+	for k, v := range r.Env {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 // Available reports whether the restic binary can be found and executed. Callers use this
@@ -60,10 +80,7 @@ func (r Repo) run(ctx context.Context, args ...string) error {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	cmd.Env = os.Environ()
-	if r.Repository != "" {
-		cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+r.Repository)
-	}
+	cmd.Env = r.childEnv()
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("restic %s: %w", args[0], err)
 	}
@@ -77,10 +94,7 @@ func (r Repo) run(ctx context.Context, args ...string) error {
 // first push. On a real failure the stderr text is preserved in the error for diagnosis.
 func (r Repo) runCapture(ctx context.Context, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "restic", args...)
-	cmd.Env = os.Environ()
-	if r.Repository != "" {
-		cmd.Env = append(cmd.Env, "RESTIC_REPOSITORY="+r.Repository)
-	}
+	cmd.Env = r.childEnv()
 	var out, errBuf strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf

@@ -95,8 +95,13 @@ func runPush(args []string) error {
 	}
 
 	// Resolve the repo early — loadRepoManifest needs it to seed the machines list before
-	// the staging tree is built, so we can't defer this to just before Backup.
-	repo, desc := resolveRepo(*repoFlag)
+	// the staging tree is built, so we can't defer this to just before Backup. This also loads
+	// config (and resolves secret env), so cfg below is the same cached instance.
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
+	cfg, _ := loadConfigCached() // already loaded (and error-checked) by resolveRepo
 
 	// Build the encoded-home prefix so the mapper can tokenise projects/<encodedCwd> into
 	// by-id/<identity> — turning machine-specific path segments into portable project keys.
@@ -107,7 +112,7 @@ func runPush(args []string) error {
 	encHome := identity.EncodedHome(home)
 
 	fmt.Printf("mnemo: building staging tree from %s\n", src)
-	res, err := stage.Build(src, stageRoot, filter.Classifier{}, projectIdentityMapper(encHome))
+	res, err := stage.Build(src, stageRoot, filter.Classifier{Exclude: cfg.Exclude}, projectIdentityMapper(encHome))
 	if err != nil {
 		return err
 	}

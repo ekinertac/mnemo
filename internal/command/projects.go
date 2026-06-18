@@ -50,7 +50,10 @@ func runProjects(args []string) error {
 	if err != nil {
 		return err
 	}
-	repo, _ := resolveRepo(*repoFlag)
+	repo, _, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	tmp, cleanup, err := restoreStagingTree(ctx, repo, "latest")
 	if err != nil {
 		return err

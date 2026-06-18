@@ -59,7 +59,10 @@ func runPull(args []string) error {
 		return err
 	}
 
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("mnemo: restoring snapshot %q from %s -> %s\n", *snapFlag, desc, target)
 	// restoreStagingTreeTo derives the subpath from the snapshot's own recorded path rather
 	// than this machine's stageRootDir, so a snapshot pushed from any machine restores correctly

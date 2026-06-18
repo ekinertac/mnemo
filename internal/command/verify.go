@@ -24,7 +24,10 @@ func runVerify(args []string) error {
 	if err := restic.Available(ctx); err != nil {
 		return err
 	}
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("mnemo: verifying %s%s\n", desc, map[bool]string{true: " (--read-data, full)", false: ""}[*readData])
 	return repo.Check(ctx, *readData)
 }

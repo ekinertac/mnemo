@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ekinertac/mnemo/internal/config"
 	"github.com/ekinertac/mnemo/internal/manifest"
 	"github.com/ekinertac/mnemo/internal/restic"
 )
@@ -100,23 +101,62 @@ config:
 `)
 }
 
-// resolveRepo determines the restic repo to operate on and returns both a restic.Repo for
-// the engine and a human-readable description for messaging. Precedence: --repo flag, then
-// MNEMO_REPO, then RESTIC_REPOSITORY. When only RESTIC_REPOSITORY is set we leave
-// restic.Repo.Repository empty and let restic read the env itself — so the displayed source
-// reflects where the value actually came from.
-func resolveRepo(flagRepo string) (restic.Repo, string) {
-	if flagRepo != "" {
-		return restic.Repo{Repository: flagRepo}, flagRepo + " (--repo)"
+// resolveRepo determines the restic repo to operate on and returns a restic.Repo (with the repo
+// location and any config-resolved secret env), a human-readable description, and an error if
+// config can't be loaded or a configured secret can't be fetched. Repo-location precedence
+// (DESIGN §6.1): --repo flag → $MNEMO_REPO → $RESTIC_REPOSITORY → config `repo` → unset. Secret
+// env (RESTIC_PASSWORD, AWS_*, …) is resolved from config for anything not already in the
+// environment, so a user need not `source` a creds file before running mnemo.
+func resolveRepo(flagRepo string) (restic.Repo, string, error) {
+	cfg, err := loadConfigCached()
+	if err != nil {
+		return restic.Repo{}, "", err
 	}
-	if v := os.Getenv("MNEMO_REPO"); v != "" {
-		return restic.Repo{Repository: v}, v + " ($MNEMO_REPO)"
+	env, err := cfg.ResolveEnv()
+	if err != nil {
+		return restic.Repo{}, "", err
 	}
-	if v := os.Getenv("RESTIC_REPOSITORY"); v != "" {
-		// Leave Repository empty: restic will read RESTIC_REPOSITORY from the inherited env.
-		return restic.Repo{}, v + " ($RESTIC_REPOSITORY)"
+
+	var repository, desc string
+	switch {
+	case flagRepo != "":
+		repository, desc = flagRepo, flagRepo+" (--repo)"
+	case os.Getenv("MNEMO_REPO") != "":
+		repository, desc = os.Getenv("MNEMO_REPO"), os.Getenv("MNEMO_REPO")+" ($MNEMO_REPO)"
+	case os.Getenv("RESTIC_REPOSITORY") != "":
+		// Leave Repository empty: restic reads RESTIC_REPOSITORY from the inherited env itself.
+		repository, desc = "", os.Getenv("RESTIC_REPOSITORY")+" ($RESTIC_REPOSITORY)"
+	case cfg.Repo != "":
+		repository, desc = cfg.Repo, cfg.Repo+" (config)"
+	default:
+		repository, desc = "", "(unset — set --repo, $MNEMO_REPO, $RESTIC_REPOSITORY, or config `repo`)"
 	}
-	return restic.Repo{}, "(unset — set --repo, $MNEMO_REPO, or $RESTIC_REPOSITORY)"
+	return restic.Repo{Repository: repository, Env: env}, desc, nil
+}
+
+// cachedConfig holds the once-loaded config for this process (a CLI run is one-shot, so loading
+// once is fine and avoids re-running secret commands at every call site).
+var cachedConfig *config.Config
+
+func loadConfigCached() (*config.Config, error) {
+	if cachedConfig != nil {
+		return cachedConfig, nil
+	}
+	c, err := config.Load(configFilePath())
+	if err != nil {
+		return nil, err
+	}
+	cachedConfig = c
+	return c, nil
+}
+
+// configFilePath is where Mnemo's config file lives: $MNEMO_CONFIG, else ~/.config/mnemo/config.json
+// (DESIGN §6.1 — see mnemoConfigDir for why not os.UserConfigDir).
+func configFilePath() string {
+	if p := os.Getenv("MNEMO_CONFIG"); p != "" {
+		return p
+	}
+	return filepath.Join(mnemoConfigDir(), "config.json")
 }
 
 // defaultClaudeDir is the source root a push reads from: the whole ~/.claude tree. The
@@ -144,13 +184,15 @@ func stageRootDir() (string, error) {
 	return filepath.Join(cache, "mnemo", "stage"), nil
 }
 
-// hostID is this machine's identity for snapshot tags and the manifest. MNEMO_HOST overrides
-// the OS hostname (DESIGN §6.1: host id is a configurable setting) — useful when a machine's
-// hostname is unstable, and it lets tests simulate multiple devices on one box by running two
-// pushes with different MNEMO_HOST values without actually needing two machines.
+// hostID is this machine's identity for snapshot tags and the manifest. Precedence (DESIGN §6.1):
+// $MNEMO_HOST → config `host` → OS hostname. The env override lets tests simulate multiple devices
+// on one box (two pushes with different MNEMO_HOST values) without needing two machines.
 func hostID() (string, error) {
 	if h := os.Getenv("MNEMO_HOST"); h != "" {
 		return h, nil
+	}
+	if cfg, err := loadConfigCached(); err == nil && cfg.Host != "" {
+		return cfg.Host, nil
 	}
 	return os.Hostname()
 }
@@ -164,15 +206,26 @@ func manifestStagePath(stageRoot string) string { return filepath.Join(stageRoot
 // out of the internal/* packages keeps them deterministically testable with injected timestamps.
 func nowRFC3339() string { return time.Now().UTC().Format(time.RFC3339) }
 
+// mnemoConfigDir is Mnemo's config directory: $XDG_CONFIG_HOME/mnemo, else ~/.config/mnemo. We do
+// NOT use os.UserConfigDir() because on macOS it returns ~/Library/Application Support, whereas
+// DESIGN §6.1 (and cross-platform muscle memory) specifies ~/.config/mnemo. Using the XDG path
+// explicitly keeps config.json and the local override store in one predictable place on every OS.
+func mnemoConfigDir() string {
+	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
+		return filepath.Join(x, "mnemo")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".config", "mnemo") // last-resort relative path
+	}
+	return filepath.Join(home, ".config", "mnemo")
+}
+
 // localManifestPath is this host's local override/bookkeeping store, written by `mnemo map`
 // (offline, no restic) and overlaid onto the repo manifest at pull/projects time so an override
-// applies immediately. Lives under the user config dir; the directory is created if absent.
+// applies immediately. The directory is created if absent.
 func localManifestPath() (string, error) {
-	cfg, err := os.UserConfigDir()
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve config dir: %w", err)
-	}
-	dir := filepath.Join(cfg, "mnemo")
+	dir := mnemoConfigDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}

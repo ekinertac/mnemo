@@ -87,7 +87,10 @@ func runPrune(args []string) error {
 	if err := restic.Available(ctx); err != nil {
 		return err
 	}
-	repo, desc := resolveRepo(*repoFlag)
+	repo, desc, err := resolveRepo(*repoFlag)
+	if err != nil {
+		return err
+	}
 	if *apply {
 		fmt.Printf("mnemo: pruning %s (APPLY — this deletes snapshots)\n", desc)
 	} else {
