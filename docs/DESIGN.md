@@ -1,8 +1,9 @@
 # Mnemo — Design
 
 > **Mnemo** syncs your Claude Code sessions across machines as encrypted, deduplicated,
-> *append-only snapshots* — and lays them back down where `claude --resume` can find them,
-> regardless of where each project lives on each machine.
+> *append-only snapshots* — and lays them back down where `claude --resume` can find them, keyed on
+> a tokenized project identity (so a session resumes on another machine that keeps the same layout
+> under `~` — whatever that machine's home path or OS — or via `mnemo map` when it doesn't).
 >
 > Named for Mnemosyne (memory): your sessions are working memory, carried between machines.
 
