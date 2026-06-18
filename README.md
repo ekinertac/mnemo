@@ -1,43 +1,79 @@
 # Mnemo
 
-Sync your Claude Code sessions across machines as encrypted, deduplicated, **append-only
-snapshots** — and resume them anywhere, keyed on project identity rather than filesystem path.
+**Pick up any Claude Code session on any machine.**
 
-Built as a thin, Claude-aware layer over [`restic`](https://restic.net): restic handles
-encryption, dedup, snapshots, integrity, and retention; Mnemo handles what's Claude-specific —
-deciding what's worth keeping, mapping projects to wherever they live on each machine, merging
-append-only logs, and laying sessions back down where `claude --resume` will find them.
+Mnemo syncs your Claude Code conversations across computers as encrypted, deduplicated,
+append-only snapshots — then lays them back down so `claude --resume` finds them, no matter where
+each project lives on each machine.
 
-> Successor to `tawanorg/claude-sync`, redesigned to be additive-by-default (a backup can never
-> delete your remote data because a local file went missing), identity-aware (a session from
-> your laptop resumes on your desktop even when the absolute paths differ), and **sessions-only**
-> — it syncs your conversations, not your config (no MCP, skills, agents, plugins, or settings).
-> Every command is non-interactive and works with any restic backend (S3-compatible and more).
+```console
+$ mnemo push
+mnemo: pushing to b2:my-sessions …
+  uploading [481/481 files] 100%
+mnemo: pushed ✓  snapshot a1b2c3d4 · 481 files · 1.8 MiB uploaded (only changes sent)
 
-## Status
+# …later, on your other machine:
+$ mnemo pull
+mnemo: pulled ✓  laid down 481 files into ~/.claude
+$ claude --resume          # the session you started on your laptop is right here
+```
 
-Working and in daily use on macOS. **M0–M5 are built:**
+## Why
 
-- **Filtered, identity-keyed snapshots** — only durable session data (transcripts, per-project
-  memory, plans, tasks, history), keyed by a path-tokenized project identity so a session resumes
-  on another machine even when the absolute paths differ.
-- **Resume-aware restore** that lays sessions back where `claude --resume` expects them.
-- **Append-merge** for `.jsonl` logs — divergent histories union instead of clobber (never lose lines).
-- **Integrity & explicit retention** — `verify`, `doctor`, and a deliberately unforgiving `prune`.
-- **Config-driven** — a `config.json` with OS-keychain secret references; no env to source.
-- **Plain-language CLI** — clean summaries by default with a live progress counter, raw restic behind `-v`.
+You start a conversation with Claude Code on your laptop. The next day you're at your desktop, and
+that session is gone — pinned to the other machine's filesystem. Mnemo carries it across.
 
-Validated end-to-end against a real Backblaze B2 (S3) backend. Still to do: a live **Mac⇄Windows**
-resume (the Windows path encoding is unit-tested but not yet run on a real Windows box).
+It's a clean-room successor to `tawanorg/claude-sync`, rebuilt around three guarantees the naive
+"just mirror the folder" approach gets wrong (and that cost the original tool **440 transcripts**):
+
+- **It can't lose your data.** Every sync is an immutable, additive snapshot. A file missing
+  locally never deletes anything remote — deletion happens *only* through an explicit,
+  retention-bounded `prune`. "I lost a session" becomes a restore, not a tragedy.
+- **It resumes anywhere.** Sessions are keyed by *project identity*, not absolute path, so a session
+  from `~/Code/foo` on your laptop lands in the right project on your desktop even if it lives
+  somewhere else there.
+- **It syncs sessions, not config.** Your conversations, memory, plans, and history — never your
+  MCP servers, skills, agents, plugins, or settings. Those are machine-specific; mirroring them is a
+  footgun. A hard boundary, not a toggle.
+
+## How it works
+
+A thin, Claude-aware layer over [`restic`](https://restic.net). restic handles the hard, dangerous
+parts — AES-256 encryption, content-defined dedup (so a 700 MB session tree syncs as the ~2 MB that
+actually changed), immutable snapshots, integrity checks, retention. Mnemo adds only what's
+Claude-specific: deciding what's durable vs. scratch, mapping projects to wherever they live on each
+machine, union-merging append-only logs so two machines never clobber each other's history, and
+laying sessions down exactly where `claude --resume` expects them.
+
+Backend-agnostic — any restic backend works: S3-compatible (AWS, Backblaze B2, MinIO, Wasabi, …),
+native B2 / Azure / GCS, SFTP, or rclone. Every command is non-interactive, so it's safe to run from
+cron, CI, or a hook.
+
+## Quick start
 
 ```sh
 go build -o mnemo .
-mnemo push      # snapshot your sessions
-mnemo pull      # restore + lay them down on another machine
-mnemo doctor    # health check
+
+mnemo init        # create or attach a restic repo (from config or env)
+mnemo push        # snapshot this machine's sessions
+mnemo pull        # on another machine: restore + lay down for claude --resume
+mnemo doctor      # is everything healthy?
+mnemo log         # what's stored — and the real (deduped) footprint, not the logical size
 ```
 
-- **[docs/DESIGN.md](docs/DESIGN.md)** — architecture, rationale, and the milestone plan.
+Config lives in `~/.config/mnemo/config.json`: the repo location plus *references* to secrets (a
+keychain command, a file, an env var) — so no credential is ever written to the file, and the same
+setup works across macOS, Windows, and Linux. Output is plain language by default, with a live
+progress counter on a terminal and raw `restic` behind `-v`.
+
+## Status
+
+Working and in daily use on macOS, validated end-to-end against a real Backblaze B2 (S3) backend.
+The full CLI — `push` `pull` `log` `map` `projects` `machines` `verify` `prune` `doctor` — is built.
+Still to verify: a live **Mac⇄Windows** resume (the Windows path handling is unit-tested, not yet
+run on a real Windows box).
+
+- **[docs/DESIGN.md](docs/DESIGN.md)** — the architecture, and the reasoning behind every decision.
 
 ## Name
 
