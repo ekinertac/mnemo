@@ -116,6 +116,22 @@ func (r Repo) maybeStream(ctx context.Context, args ...string) error {
 	return r.runQuiet(ctx, args...)
 }
 
+// runCaptureStdout captures stdout (to parse, e.g. --json) while streaming stderr LIVE to the
+// user. Unlike runCapture, restic's stderr — lock waits, retry notices, fatal errors — is shown
+// as it happens, so a slow or stalling operation never goes silent. Used by non-verbose Backup,
+// whose stdout is the JSON summary we parse but whose stderr the user still wants to see.
+func (r Repo) runCaptureStdout(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "restic", args...)
+	cmd.Env = r.childEnv()
+	var out strings.Builder
+	cmd.Stdout = &out
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return out.String(), fmt.Errorf("restic %s: %w", args[0], err)
+	}
+	return out.String(), nil
+}
+
 // runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json).
 // Unlike run, it captures stderr into the returned error rather than streaming it live: callers
 // like SnapshotPaths probe best-effort (e.g. "is there a prior snapshot?"), and restic's benign
@@ -194,7 +210,7 @@ func (r Repo) Backup(ctx context.Context, paths []string, tags []string) (Backup
 	}
 	args = append(args, "--json")
 	args = append(args, paths...)
-	out, err := r.runCapture(ctx, args...)
+	out, err := r.runCaptureStdout(ctx, args...) // stderr streams live so errors aren't hidden
 	if err != nil {
 		return BackupSummary{}, err
 	}
@@ -229,7 +245,7 @@ func parseBackupSummary(out string) (BackupSummary, error) {
 			}, nil
 		}
 	}
-	return BackupSummary{}, fmt.Errorf("no summary in restic backup output")
+	return BackupSummary{}, fmt.Errorf("no summary in restic backup output: %s", strings.TrimSpace(out))
 }
 
 // Restore materializes a snapshot into target (`restic restore <snapshot> --target`).

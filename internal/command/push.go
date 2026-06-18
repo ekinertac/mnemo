@@ -147,8 +147,12 @@ func runPush(args []string) error {
 	if err := os.MkdirAll(stageRoot, 0o755); err != nil {
 		return fmt.Errorf("ensuring staging root for manifest: %w", err)
 	}
+	// Seed from the repo's prior manifest. Always do this quietly — even under push -v, the
+	// manifest fetch is internal plumbing the user didn't ask to see streamed.
+	quietRepo := repo
+	quietRepo.Verbose = false
 	man := manifest.New()
-	if prior, err := loadRepoManifest(ctx, repo); err == nil {
+	if prior, err := loadRepoManifest(ctx, quietRepo); err == nil {
 		man = prior
 	}
 	man.TouchMachine(host, nowRFC3339())
@@ -171,35 +175,4 @@ func runPush(args []string) error {
 			shortID(summary.SnapshotID), summary.TotalFiles, humanBytes(summary.BytesUploaded))
 	}
 	return nil
-}
-
-// shortID trims a restic snapshot id to its short form (first 8 chars), matching `mnemo log`.
-func shortID(id string) string {
-	if len(id) > 8 {
-		return id[:8]
-	}
-	return id
-}
-
-// repoName extracts just the location from a resolveRepo description like "s3://… (config)",
-// dropping the "(source)" suffix for a cleaner message.
-func repoName(desc string) string {
-	if i := strings.LastIndex(desc, " ("); i > 0 {
-		return desc[:i]
-	}
-	return desc
-}
-
-// humanBytes formats a byte count for human-readable push summaries.
-func humanBytes(n int64) string {
-	const unit = 1024
-	if n < unit {
-		return fmt.Sprintf("%d B", n)
-	}
-	div, exp := int64(unit), 0
-	for x := n / unit; x >= unit; x /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }

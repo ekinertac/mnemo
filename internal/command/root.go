@@ -22,12 +22,44 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ekinertac/mnemo/internal/config"
 	"github.com/ekinertac/mnemo/internal/manifest"
 	"github.com/ekinertac/mnemo/internal/restic"
 )
+
+// shortID trims a restic snapshot id to its short form (first 8 chars), matching restic's display.
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// repoName extracts just the location from a resolveRepo description like "s3://… (config)",
+// dropping the "(source)" suffix for cleaner push/pull messages.
+func repoName(desc string) string {
+	if i := strings.LastIndex(desc, " ("); i > 0 {
+		return desc[:i]
+	}
+	return desc
+}
+
+// humanBytes formats a byte count for human-readable summaries.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
 
 // Execute dispatches argv (excluding the program name) to a subcommand and returns the
 // process exit code. Unknown or missing subcommands print usage and exit non-zero — Mnemo
