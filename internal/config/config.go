@@ -50,6 +50,9 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return &Config{}, nil // empty/whitespace file = empty config, not a parse error
+	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", path, err)

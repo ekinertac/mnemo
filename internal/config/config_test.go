@@ -40,6 +40,19 @@ func TestLoadParses(t *testing.T) {
 	}
 }
 
+// An empty or whitespace-only config file is treated as empty config, not a parse error.
+func TestLoadEmptyFileIsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	os.WriteFile(path, []byte("   \n"), 0o600)
+	c, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Repo != "" || len(c.Secrets) != 0 {
+		t.Errorf("empty file should yield empty config, got %+v", c)
+	}
+}
+
 // Malformed JSON is a real error the user must see (not silently ignored).
 func TestLoadMalformedErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")

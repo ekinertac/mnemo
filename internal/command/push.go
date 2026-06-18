@@ -63,6 +63,8 @@ func runPush(args []string) error {
 	repoFlag := fs.String("repo", "", "restic repo location (overrides $MNEMO_REPO / $RESTIC_REPOSITORY)")
 	srcFlag := fs.String("path", "", "source root to filter & snapshot (default: ~/.claude)")
 	dryRun := fs.Bool("dry-run", false, "build the staging tree and report what would be pushed, without backing up")
+	verbose := fs.Bool("verbose", false, "show restic's raw technical output instead of a plain summary")
+	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -101,6 +103,7 @@ func runPush(args []string) error {
 	if err != nil {
 		return err
 	}
+	repo.Verbose = *verbose // -v streams restic's raw output; default is a clean summary
 	cfg, _ := loadConfigCached() // already loaded (and error-checked) by resolveRepo
 
 	// Build the encoded-home prefix so the mapper can tokenise projects/<encodedCwd> into
@@ -156,8 +159,35 @@ func runPush(args []string) error {
 
 	tags := []string{"host=" + host, "mnemo=" + schemaVersion}
 
-	fmt.Printf("mnemo: pushing staging tree -> %s (tags: %v)\n", desc, tags)
-	return repo.Backup(ctx, []string{stageRoot}, tags)
+	fmt.Printf("mnemo: pushing to %s …\n", repoName(desc))
+	summary, err := repo.Backup(ctx, []string{stageRoot}, tags)
+	if err != nil {
+		return err
+	}
+	if !*verbose {
+		// Plain-language outcome — the number that matters is bytes actually uploaded, not the
+		// logical tree size (see `mnemo log`). restic already printed its own summary in -v mode.
+		fmt.Printf("mnemo: pushed ✓  snapshot %s · %d files · %s uploaded (only changes sent)\n",
+			shortID(summary.SnapshotID), summary.TotalFiles, humanBytes(summary.BytesUploaded))
+	}
+	return nil
+}
+
+// shortID trims a restic snapshot id to its short form (first 8 chars), matching `mnemo log`.
+func shortID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// repoName extracts just the location from a resolveRepo description like "s3://… (config)",
+// dropping the "(source)" suffix for a cleaner message.
+func repoName(desc string) string {
+	if i := strings.LastIndex(desc, " ("); i > 0 {
+		return desc[:i]
+	}
+	return desc
 }
 
 // humanBytes formats a byte count for human-readable push summaries.

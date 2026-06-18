@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,6 +41,10 @@ import (
 type Repo struct {
 	Repository string
 	Env        map[string]string
+	// Verbose, when true, streams restic's native (technical) output to the user. When false
+	// (the default), restic's chatter is suppressed and Mnemo prints its own plain-language
+	// summaries instead — so `mnemo push`/`pull` read like a sync tool, not a git plumbing dump.
+	Verbose bool
 }
 
 // childEnv builds the environment for a restic child: the inherited environment, plus
@@ -85,6 +90,30 @@ func (r Repo) run(ctx context.Context, args ...string) error {
 		return fmt.Errorf("restic %s: %w", args[0], err)
 	}
 	return nil
+}
+
+// runQuiet execs restic with output discarded (stderr captured into the error). Used for internal
+// plumbing — manifest fetches, staging-tree restores — whose restic chatter ("Restored 1 files…")
+// is noise the user never asked for; Mnemo prints its own summaries instead.
+func (r Repo) runQuiet(ctx context.Context, args ...string) error {
+	cmd := exec.CommandContext(ctx, "restic", args...)
+	cmd.Env = r.childEnv()
+	cmd.Stdout = io.Discard
+	var errBuf strings.Builder
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("restic %s: %w: %s", args[0], err, strings.TrimSpace(errBuf.String()))
+	}
+	return nil
+}
+
+// maybeStream runs restic, streaming its native output only when Verbose; otherwise it runs quietly
+// so Mnemo can present its own clean summary. Used by the restore paths.
+func (r Repo) maybeStream(ctx context.Context, args ...string) error {
+	if r.Verbose {
+		return r.run(ctx, args...)
+	}
+	return r.runQuiet(ctx, args...)
 }
 
 // runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json).
@@ -135,19 +164,72 @@ func (r Repo) Init(ctx context.Context) error {
 	return r.run(ctx, "init")
 }
 
-// Backup snapshots the given paths into the repo (`restic backup`). tags are attached to
-// the snapshot so later filtering (by host, schema version) is possible — at M0 callers
-// pass host/mnemo tags so the snapshot graph is already self-describing.
-func (r Repo) Backup(ctx context.Context, paths []string, tags []string) error {
+// BackupSummary is the human-meaningful outcome of a backup, extracted from restic's --json
+// output: which snapshot, how many files, and — the number users actually care about — how many
+// bytes were really uploaded (data_added_packed, after dedup+compression), not the logical size.
+type BackupSummary struct {
+	SnapshotID     string
+	FilesNew       int
+	FilesChanged   int
+	TotalFiles     int
+	BytesUploaded  int64 // data_added_packed — actual bytes added to the repo
+	BytesProcessed int64 // total_bytes_processed — logical size scanned
+}
+
+// Backup snapshots the given paths into the repo (`restic backup`). tags are attached so later
+// filtering by host/schema is possible. When Verbose, restic's native output streams and the
+// returned summary is zero (the user is reading restic directly); otherwise restic runs with
+// --json and Backup returns a parsed BackupSummary for Mnemo to present cleanly.
+func (r Repo) Backup(ctx context.Context, paths []string, tags []string) (BackupSummary, error) {
 	if len(paths) == 0 {
-		return fmt.Errorf("backup: no paths given")
+		return BackupSummary{}, fmt.Errorf("backup: no paths given")
 	}
 	args := []string{"backup"}
 	for _, t := range tags {
 		args = append(args, "--tag", t)
 	}
+	if r.Verbose {
+		args = append(args, paths...)
+		return BackupSummary{}, r.run(ctx, args...)
+	}
+	args = append(args, "--json")
 	args = append(args, paths...)
-	return r.run(ctx, args...)
+	out, err := r.runCapture(ctx, args...)
+	if err != nil {
+		return BackupSummary{}, err
+	}
+	return parseBackupSummary(out)
+}
+
+// parseBackupSummary scans restic's newline-delimited --json backup output for the single summary
+// message and extracts it. Status messages are ignored.
+func parseBackupSummary(out string) (BackupSummary, error) {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var m struct {
+			MessageType         string `json:"message_type"`
+			SnapshotID          string `json:"snapshot_id"`
+			FilesNew            int    `json:"files_new"`
+			FilesChanged        int    `json:"files_changed"`
+			TotalFilesProcessed int    `json:"total_files_processed"`
+			DataAddedPacked     int64  `json:"data_added_packed"`
+			TotalBytesProcessed int64  `json:"total_bytes_processed"`
+		}
+		if json.Unmarshal([]byte(line), &m) == nil && m.MessageType == "summary" {
+			return BackupSummary{
+				SnapshotID:     m.SnapshotID,
+				FilesNew:       m.FilesNew,
+				FilesChanged:   m.FilesChanged,
+				TotalFiles:     m.TotalFilesProcessed,
+				BytesUploaded:  m.DataAddedPacked,
+				BytesProcessed: m.TotalBytesProcessed,
+			}, nil
+		}
+	}
+	return BackupSummary{}, fmt.Errorf("no summary in restic backup output")
 }
 
 // Restore materializes a snapshot into target (`restic restore <snapshot> --target`).
@@ -180,7 +262,7 @@ func (r Repo) RestoreSubpath(ctx context.Context, snapshot, snapshotSubpath, tar
 	}
 	// restic "snapshotID:/path/within/snapshot" syntax: restores that sub-tree directly
 	// under --target without the leading absolute path components.
-	return r.run(ctx, "restore", snapshot+":"+snapshotSubpath, "--target", target)
+	return r.maybeStream(ctx, "restore", snapshot+":"+snapshotSubpath, "--target", target)
 }
 
 // RestoreSubpathInclude restores only the files rooted at snapshotSubpath AND matching the
@@ -194,7 +276,7 @@ func (r Repo) RestoreSubpathInclude(ctx context.Context, snapshot, snapshotSubpa
 	if target == "" {
 		return fmt.Errorf("restore: empty target dir")
 	}
-	return r.run(ctx, "restore", snapshot+":"+snapshotSubpath, "--include", include, "--target", target)
+	return r.maybeStream(ctx, "restore", snapshot+":"+snapshotSubpath, "--include", include, "--target", target)
 }
 
 // Snapshots lists the repo's snapshots (`restic snapshots`). Output streams to stdout; this

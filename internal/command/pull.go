@@ -41,6 +41,8 @@ func runPull(args []string) error {
 	snapFlag := fs.String("snapshot", "latest", "snapshot ID to restore (default: latest)")
 	targetFlag := fs.String("target", "", "directory to restore into (default: ./mnemo-restore)")
 	layDown := fs.Bool("lay-down", true, "after restore, lay sessions into ~/.claude for this machine")
+	verbose := fs.Bool("verbose", false, "show restic's raw technical output instead of a plain summary")
+	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -63,38 +65,47 @@ func runPull(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("mnemo: restoring snapshot %q from %s -> %s\n", *snapFlag, desc, target)
+	repo.Verbose = *verbose // -v streams restic's raw restore output; default is a clean summary
+
+	fmt.Printf("mnemo: pulling %s from %s …\n", *snapFlag, repoName(desc))
 	// restoreStagingTreeTo derives the subpath from the snapshot's own recorded path rather
 	// than this machine's stageRootDir, so a snapshot pushed from any machine restores correctly
 	// here — cross-machine UserCacheDirs differ.
 	if err := restoreStagingTreeTo(ctx, repo, *snapFlag, target); err != nil {
 		return err
 	}
-	fmt.Printf("mnemo: restored into %s\n", target)
 
-	if *layDown {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return err
-		}
-		host, err := hostID()
-		if err != nil {
-			return err
-		}
-		man, err := manifest.Load(filepath.Join(target, "projects.json"))
-		if err != nil {
-			return err
-		}
-		if err := overlayLocalOverrides(man, host); err != nil {
-			return err
-		}
-		rep, err := restore.LayDown(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("mnemo: laid down %d files; %d unmapped\n", rep.LaidDown, len(rep.Unmapped))
+	if !*layDown {
+		fmt.Printf("mnemo: restored ✓  staging tree written to %s (not laid down — --lay-down=false)\n", target)
+		return nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	host, err := hostID()
+	if err != nil {
+		return err
+	}
+	man, err := manifest.Load(filepath.Join(target, "projects.json"))
+	if err != nil {
+		return err
+	}
+	if err := overlayLocalOverrides(man, host); err != nil {
+		return err
+	}
+	rep, err := restore.LayDown(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man)
+	if err != nil {
+		return err
+	}
+	if len(rep.Unmapped) == 0 {
+		fmt.Printf("mnemo: pulled ✓  laid down %d files into ~/.claude\n", rep.LaidDown)
+	} else {
+		fmt.Printf("mnemo: pulled ✓  laid down %d files into ~/.claude (%d unmapped — need `mnemo map`)\n",
+			rep.LaidDown, len(rep.Unmapped))
 		for _, id := range rep.Unmapped {
-			fmt.Printf("  unmapped: %s  (use: mnemo map %s <local-path>)\n", id, id)
+			fmt.Printf("  unmapped: %s  →  mnemo map %s <local-path>\n", id, id)
 		}
 	}
 	return nil
