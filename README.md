@@ -29,9 +29,11 @@ It's a clean-room successor to `tawanorg/claude-sync`, rebuilt around three guar
 - **It can't lose your data.** Every sync is an immutable, additive snapshot. A file missing
   locally never deletes anything remote — deletion happens *only* through an explicit,
   retention-bounded `prune`. "I lost a session" becomes a restore, not a tragedy.
-- **It resumes anywhere.** Sessions are keyed by *project identity*, not absolute path, so a session
-  from `~/Code/foo` on your laptop lands in the right project on your desktop even if it lives
-  somewhere else there.
+- **It follows your layout across machines.** Sessions are keyed by a path-tokenized *project
+  identity*, not a raw absolute path: the home prefix is tokenized away, so `~/Code/foo` matches
+  across machines regardless of OS or username (`/Users/you`, `/home/you`, `C:\Users\you`). Keep the
+  same layout under `~` and a laptop session resumes on your desktop automatically; if a project
+  lives at a different path on another machine, one `mnemo map` points it there.
 - **It syncs sessions, not config.** Your conversations, memory, plans, and history — never your
   MCP servers, skills, agents, plugins, or settings. Those are machine-specific; mirroring them is a
   footgun. A hard boundary, not a toggle.
