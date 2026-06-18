@@ -164,7 +164,23 @@ func runPush(args []string) error {
 	tags := []string{"host=" + host, "mnemo=" + schemaVersion}
 
 	fmt.Printf("mnemo: pushing to %s …\n", repoName(desc))
-	summary, err := repo.Backup(ctx, []string{stageRoot}, tags)
+
+	// Live progress on a terminal: a transient \r-updated counter on stderr (a pipe/file would just
+	// see \r noise, so render only on a TTY). In -v mode restic prints its own progress, so Backup
+	// never calls this.
+	isTTY := isTerminal(os.Stderr)
+	onProgress := func(p restic.BackupProgress) {
+		if !isTTY || p.TotalFiles == 0 {
+			return
+		}
+		fmt.Fprintf(os.Stderr, "\r  uploading [%d/%d files] %3.0f%%\033[K",
+			p.FilesDone, p.TotalFiles, p.PercentDone*100)
+	}
+
+	summary, err := repo.Backup(ctx, []string{stageRoot}, tags, onProgress)
+	if isTTY {
+		fmt.Fprint(os.Stderr, "\r\033[K") // clear the progress line before the result
+	}
 	if err != nil {
 		return err
 	}

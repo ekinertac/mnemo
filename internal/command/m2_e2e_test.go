@@ -61,7 +61,7 @@ func TestM2CrossHomeResume(t *testing.T) {
 	if _, err := stage.Build(srcA, stageA, filter.Classifier{}, projectIdentityMapper(encHomeA)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Backup(ctx, []string{stageA}, []string{"host=machineA"}); err != nil {
+	if _, err := repo.Backup(ctx, []string{stageA}, []string{"host=machineA"}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -114,7 +114,7 @@ func TestM2MachineAccumulation(t *testing.T) {
 	if err := manA.Save(filepath.Join(stageA, "projects.json")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Backup(ctx, []string{stageA}, []string{"host=machineA"}); err != nil {
+	if _, err := repo.Backup(ctx, []string{stageA}, []string{"host=machineA"}, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -133,7 +133,7 @@ func TestM2MachineAccumulation(t *testing.T) {
 	if err := manB.Save(filepath.Join(stageB, "projects.json")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.Backup(ctx, []string{stageB}, []string{"host=machineB"}); err != nil {
+	if _, err := repo.Backup(ctx, []string{stageB}, []string{"host=machineB"}, nil); err != nil {
 		t.Fatal(err)
 	}
 

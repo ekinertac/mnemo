@@ -30,6 +30,13 @@ import (
 	"github.com/ekinertac/mnemo/internal/restic"
 )
 
+// isTerminal reports whether f is connected to a terminal, so progress is rendered with \r only
+// when a human is watching — a pipe or file would otherwise collect carriage-return noise.
+func isTerminal(f *os.File) bool {
+	fi, err := f.Stat()
+	return err == nil && fi.Mode()&os.ModeCharDevice != 0
+}
+
 // shortID trims a restic snapshot id to its short form (first 8 chars), matching restic's display.
 func shortID(id string) string {
 	if len(id) > 8 {

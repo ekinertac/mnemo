@@ -18,6 +18,7 @@
 package restic
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -116,22 +117,6 @@ func (r Repo) maybeStream(ctx context.Context, args ...string) error {
 	return r.runQuiet(ctx, args...)
 }
 
-// runCaptureStdout captures stdout (to parse, e.g. --json) while streaming stderr LIVE to the
-// user. Unlike runCapture, restic's stderr — lock waits, retry notices, fatal errors — is shown
-// as it happens, so a slow or stalling operation never goes silent. Used by non-verbose Backup,
-// whose stdout is the JSON summary we parse but whose stderr the user still wants to see.
-func (r Repo) runCaptureStdout(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "restic", args...)
-	cmd.Env = r.childEnv()
-	var out strings.Builder
-	cmd.Stdout = &out
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return out.String(), fmt.Errorf("restic %s: %w", args[0], err)
-	}
-	return out.String(), nil
-}
-
 // runCapture is like run but captures stdout (for commands whose output we parse, e.g. --json).
 // Unlike run, it captures stderr into the returned error rather than streaming it live: callers
 // like SnapshotPaths probe best-effort (e.g. "is there a prior snapshot?"), and restic's benign
@@ -192,11 +177,23 @@ type BackupSummary struct {
 	BytesProcessed int64 // total_bytes_processed — logical size scanned
 }
 
+// BackupProgress is a live snapshot of a backup's progress, delivered to Backup's onProgress
+// callback for each restic status message so the command layer can render a counter/bar.
+type BackupProgress struct {
+	FilesDone   int
+	TotalFiles  int
+	BytesDone   int64
+	TotalBytes  int64
+	PercentDone float64 // 0..1
+}
+
 // Backup snapshots the given paths into the repo (`restic backup`). tags are attached so later
 // filtering by host/schema is possible. When Verbose, restic's native output streams and the
-// returned summary is zero (the user is reading restic directly); otherwise restic runs with
-// --json and Backup returns a parsed BackupSummary for Mnemo to present cleanly.
-func (r Repo) Backup(ctx context.Context, paths []string, tags []string) (BackupSummary, error) {
+// returned summary is zero (the user is reading restic directly). Otherwise restic runs with
+// --json: Backup parses the stream LIVE, invoking onProgress (may be nil) for each status update
+// and returning a BackupSummary from the final summary message. stderr streams live either way so
+// errors/lock-waits are never hidden.
+func (r Repo) Backup(ctx context.Context, paths []string, tags []string, onProgress func(BackupProgress)) (BackupSummary, error) {
 	if len(paths) == 0 {
 		return BackupSummary{}, fmt.Errorf("backup: no paths given")
 	}
@@ -210,42 +207,81 @@ func (r Repo) Backup(ctx context.Context, paths []string, tags []string) (Backup
 	}
 	args = append(args, "--json")
 	args = append(args, paths...)
-	out, err := r.runCaptureStdout(ctx, args...) // stderr streams live so errors aren't hidden
+
+	cmd := exec.CommandContext(ctx, "restic", args...)
+	cmd.Env = r.childEnv()
+	cmd.Stderr = os.Stderr // live, so lock-waits/errors are visible during a long push
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return BackupSummary{}, err
 	}
-	return parseBackupSummary(out)
+	if err := cmd.Start(); err != nil {
+		return BackupSummary{}, err
+	}
+	summary, perr := streamBackup(stdout, onProgress) // drains stdout until restic exits
+	if werr := cmd.Wait(); werr != nil {
+		return summary, fmt.Errorf("restic backup: %w", werr)
+	}
+	return summary, perr
 }
 
-// parseBackupSummary scans restic's newline-delimited --json backup output for the single summary
-// message and extracts it. Status messages are ignored.
-func parseBackupSummary(out string) (BackupSummary, error) {
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
+// streamBackup reads restic's newline-delimited --json backup output, calling onProgress for each
+// status message and capturing the single summary. It returns an error if no summary arrives (so a
+// silent restic failure isn't reported as success).
+func streamBackup(rd io.Reader, onProgress func(BackupProgress)) (BackupSummary, error) {
+	sc := bufio.NewScanner(rd)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // restic status lines can be long (current_files)
+	var summary BackupSummary
+	haveSummary := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
 		if !strings.HasPrefix(line, "{") {
 			continue
 		}
 		var m struct {
-			MessageType         string `json:"message_type"`
-			SnapshotID          string `json:"snapshot_id"`
-			FilesNew            int    `json:"files_new"`
-			FilesChanged        int    `json:"files_changed"`
-			TotalFilesProcessed int    `json:"total_files_processed"`
-			DataAddedPacked     int64  `json:"data_added_packed"`
-			TotalBytesProcessed int64  `json:"total_bytes_processed"`
+			MessageType         string  `json:"message_type"`
+			PercentDone         float64 `json:"percent_done"`
+			TotalFiles          int     `json:"total_files"`
+			FilesDone           int     `json:"files_done"`
+			TotalBytes          int64   `json:"total_bytes"`
+			BytesDone           int64   `json:"bytes_done"`
+			SnapshotID          string  `json:"snapshot_id"`
+			FilesNew            int     `json:"files_new"`
+			FilesChanged        int     `json:"files_changed"`
+			TotalFilesProcessed int     `json:"total_files_processed"`
+			DataAddedPacked     int64   `json:"data_added_packed"`
+			TotalBytesProcessed int64   `json:"total_bytes_processed"`
 		}
-		if json.Unmarshal([]byte(line), &m) == nil && m.MessageType == "summary" {
-			return BackupSummary{
+		if json.Unmarshal([]byte(line), &m) != nil {
+			continue
+		}
+		switch m.MessageType {
+		case "status":
+			if onProgress != nil {
+				onProgress(BackupProgress{
+					FilesDone: m.FilesDone, TotalFiles: m.TotalFiles,
+					BytesDone: m.BytesDone, TotalBytes: m.TotalBytes, PercentDone: m.PercentDone,
+				})
+			}
+		case "summary":
+			summary = BackupSummary{
 				SnapshotID:     m.SnapshotID,
 				FilesNew:       m.FilesNew,
 				FilesChanged:   m.FilesChanged,
 				TotalFiles:     m.TotalFilesProcessed,
 				BytesUploaded:  m.DataAddedPacked,
 				BytesProcessed: m.TotalBytesProcessed,
-			}, nil
+			}
+			haveSummary = true
 		}
 	}
-	return BackupSummary{}, fmt.Errorf("no summary in restic backup output: %s", strings.TrimSpace(out))
+	if err := sc.Err(); err != nil {
+		return summary, err
+	}
+	if !haveSummary {
+		return summary, fmt.Errorf("no summary in restic backup output")
+	}
+	return summary, nil
 }
 
 // Restore materializes a snapshot into target (`restic restore <snapshot> --target`).
