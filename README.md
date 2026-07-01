@@ -51,11 +51,32 @@ Backend-agnostic — any restic backend works: S3-compatible (AWS, Backblaze B2,
 native B2 / Azure / GCS, SFTP, or rclone. Every command is non-interactive, so it's safe to run from
 cron, CI, or a hook.
 
+## Install
+
+Needs [Go](https://go.dev) 1.26+ and [`restic`](https://restic.net) on your `PATH`.
+
+```sh
+# restic (the storage engine)
+brew install restic          # macOS
+# or: apt install restic / your package manager
+
+# mnemo
+go install github.com/ekinertac/mnemo@latest
+```
+
+That drops `mnemo` in `$(go env GOPATH)/bin` (usually `~/go/bin` — make sure it's on your `PATH`).
+
+Or build from source:
+
+```sh
+git clone https://github.com/ekinertac/mnemo.git
+cd mnemo
+go build -o mnemo .          # or: go install .
+```
+
 ## Quick start
 
 ```sh
-go build -o mnemo .
-
 mnemo init        # create or attach a restic repo (from config or env)
 mnemo push        # snapshot this machine's sessions
 mnemo pull        # on another machine: restore + lay down for claude --resume
