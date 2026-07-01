@@ -47,15 +47,6 @@ func runPull(args []string) error {
 		return err
 	}
 
-	target := *targetFlag
-	if target == "" {
-		cwd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("cannot resolve working dir for default target: %w", err)
-		}
-		target = filepath.Join(cwd, "mnemo-restore")
-	}
-
 	ctx := context.Background()
 	if err := restic.Available(ctx); err != nil {
 		return err
@@ -68,12 +59,35 @@ func runPull(args []string) error {
 	repo.Verbose = *verbose // -v streams restic's raw restore output; default is a clean summary
 
 	fmt.Printf("mnemo: pulling %s from %s …\n", *snapFlag, repoName(desc))
-	// restoreStagingTreeTo derives the subpath from the snapshot's own recorded path rather
-	// than this machine's stageRootDir, so a snapshot pushed from any machine restores correctly
-	// here — cross-machine UserCacheDirs differ.
-	if err := restoreStagingTreeTo(ctx, repo, *snapFlag, target); err != nil {
-		return err
+
+	// Where to restore the snapshot's staging tree before lay-down. With an explicit --target, or
+	// --lay-down=false, restore to a user-visible directory and KEEP it — there the folder is the
+	// deliverable. Otherwise (a normal lay-down pull) restore into a throwaway temp dir that we
+	// remove afterward, so no ~1 GB mnemo-restore/ is left behind in the current directory.
+	var target string
+	cleanup := func() {}
+	if *targetFlag != "" || !*layDown {
+		target = *targetFlag
+		if target == "" {
+			cwd, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("cannot resolve working dir for default target: %w", err)
+			}
+			target = filepath.Join(cwd, "mnemo-restore")
+		}
+		// restoreStagingTreeTo derives the subpath from the snapshot's own recorded path (not this
+		// machine's stageRootDir), so a snapshot pushed from any machine restores correctly here.
+		if err := restoreStagingTreeTo(ctx, repo, *snapFlag, target); err != nil {
+			return err
+		}
+	} else {
+		tmp, cl, err := restoreStagingTree(ctx, repo, *snapFlag)
+		if err != nil {
+			return err
+		}
+		target, cleanup = tmp, cl
 	}
+	defer cleanup()
 
 	if !*layDown {
 		fmt.Printf("mnemo: restored ✓  staging tree written to %s (not laid down — --lay-down=false)\n", target)
