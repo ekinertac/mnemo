@@ -103,7 +103,7 @@ func runPush(args []string) error {
 	if err != nil {
 		return err
 	}
-	repo.Verbose = *verbose // -v streams restic's raw output; default is a clean summary
+	repo.Verbose = *verbose      // -v streams restic's raw output; default is a clean summary
 	cfg, _ := loadConfigCached() // already loaded (and error-checked) by resolveRepo
 
 	// Build the encoded-home prefix so the mapper can tokenise projects/<encodedCwd> into

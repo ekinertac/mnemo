@@ -30,6 +30,10 @@ import (
 	"github.com/ekinertac/mnemo/internal/restic"
 )
 
+// Version is the build version, printed by `mnemo version`. It defaults to "dev" for local builds
+// and is set at release time via -ldflags (-X …/internal/command.Version=<tag>) by GoReleaser.
+var Version = "dev"
+
 // isTerminal reports whether f is connected to a terminal, so progress is rendered with \r only
 // when a human is watching — a pipe or file would otherwise collect carriage-return noise.
 func isTerminal(f *os.File) bool {
@@ -101,6 +105,9 @@ func Execute(args []string) int {
 		err = runPrune(rest)
 	case "doctor":
 		err = runDoctor(rest)
+	case "version", "--version", "-V":
+		fmt.Println("mnemo " + Version)
+		return 0
 	case "help", "-h", "--help":
 		usage()
 		return 0
@@ -132,6 +139,7 @@ usage:
   mnemo verify   [--repo PATH] [--read-data]                       check repo integrity (restic check)
   mnemo prune    [--repo PATH] --keep-* [--apply]                  apply retention (dry-run unless --apply)
   mnemo doctor   [--repo PATH]                                     health report (restic, repo, machines)
+  mnemo version                                                    print the mnemo version
 
 config:
   config file:    ~/.config/mnemo/config.json  (override with $MNEMO_CONFIG)

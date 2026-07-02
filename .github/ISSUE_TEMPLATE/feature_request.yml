@@ -1,0 +1,26 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the use case, not just the feature — it helps find the simplest solution.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like Mnemo to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: markdown
+    attributes:
+      value: >
+        Heads-up on scope: Mnemo is **sessions-only** (never syncs MCP/skills/agents/plugins/settings),
+        **additive** (only an explicit `prune` deletes), **non-interactive**, and **stdlib-only**.
+        Proposals that fit those constraints are far more likely to land — see `docs/DESIGN.md`.

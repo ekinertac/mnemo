@@ -1,10 +1,15 @@
 # Mnemo
 
-**Pick up any Claude Code session on any machine.**
+**Pick up any Claude Code session on your other machines.**
+
+[![CI](https://github.com/ekinertac/mnemo/actions/workflows/ci.yml/badge.svg)](https://github.com/ekinertac/mnemo/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/ekinertac/mnemo)](https://goreportcard.com/report/github.com/ekinertac/mnemo)
+[![Release](https://img.shields.io/github/v/release/ekinertac/mnemo)](https://github.com/ekinertac/mnemo/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Mnemo syncs your Claude Code conversations across computers as encrypted, deduplicated,
-append-only snapshots — then lays them back down so `claude --resume` finds them, no matter where
-each project lives on each machine.
+append-only snapshots — then lays them back down where `claude --resume` finds them, keyed on
+project identity rather than a raw filesystem path.
 
 ```console
 $ mnemo push
@@ -53,25 +58,28 @@ cron, CI, or a hook.
 
 ## Install
 
-Needs [Go](https://go.dev) 1.26+ and [`restic`](https://restic.net) on your `PATH`.
+Mnemo needs [`restic`](https://restic.net) on your `PATH` — the installers below pull it in for you.
+
+**Homebrew** (macOS/Linux) — installs `restic` automatically:
 
 ```sh
-# restic (the storage engine)
-brew install restic          # macOS
-# or: apt install restic / your package manager
-
-# mnemo
-go install github.com/ekinertac/mnemo@latest
+brew install ekinertac/tap/mnemo
 ```
 
-That drops `mnemo` in `$(go env GOPATH)/bin` (usually `~/go/bin` — make sure it's on your `PATH`).
-
-Or build from source:
+**`go install`** (needs [Go](https://go.dev) 1.23+ and `restic` already installed):
 
 ```sh
-git clone https://github.com/ekinertac/mnemo.git
-cd mnemo
-go build -o mnemo .          # or: go install .
+go install github.com/ekinertac/mnemo@latest   # drops mnemo in $(go env GOPATH)/bin
+```
+
+**Prebuilt binaries** — grab a `.tar.gz` for your OS/arch from the
+[Releases page](https://github.com/ekinertac/mnemo/releases) (remember to install `restic` too).
+
+**From source:**
+
+```sh
+git clone https://github.com/ekinertac/mnemo.git && cd mnemo
+go build -o mnemo .
 ```
 
 ## Quick start

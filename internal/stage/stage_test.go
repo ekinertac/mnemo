@@ -30,21 +30,21 @@ func TestBuildSelectsOnlyDurable(t *testing.T) {
 
 	writeTree(t, src, map[string]string{
 		// durable
-		"history.jsonl":                                  "h\n",
-		"projects/-Users-x-Code-foo/session-1.jsonl":     "s1\n",
-		"projects/-Users-x-Code-foo/memory/note.md":      "mem\n",
-		"plans/p.md":                                     "plan\n",
-		"tasks/t-1.json":                                 "{}\n",
+		"history.jsonl": "h\n",
+		"projects/-Users-x-Code-foo/session-1.jsonl": "s1\n",
+		"projects/-Users-x-Code-foo/memory/note.md":  "mem\n",
+		"plans/p.md":     "plan\n",
+		"tasks/t-1.json": "{}\n",
 		// skipped: ephemeral
-		"projects/-Users-x-Code-foo/subagents/a.jsonl":   "scratch\n",
-		"projects/-Users-x-Code-foo/tool-results/o.txt":  "dump\n",
-		"tasks/t-1/.lock":                                "lock\n",
+		"projects/-Users-x-Code-foo/subagents/a.jsonl":  "scratch\n",
+		"projects/-Users-x-Code-foo/tool-results/o.txt": "dump\n",
+		"tasks/t-1/.lock": "lock\n",
 		// skipped: config (and a deep file that must not be walked into)
-		"settings.json":                                  "cfg\n",
-		"plugins/big/node_modules/x.js":                  "junk\n",
-		"skills/s/SKILL.md":                              "skill\n",
+		"settings.json":                 "cfg\n",
+		"plugins/big/node_modules/x.js": "junk\n",
+		"skills/s/SKILL.md":             "skill\n",
 		// skipped: unknown
-		"cache/blob":                                     "cache\n",
+		"cache/blob": "cache\n",
 	})
 
 	res, err := Build(src, stageDir, filter.Classifier{}, nil)

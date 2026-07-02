@@ -3,11 +3,12 @@
 // --resume` immediately without any further manual step.
 //
 // Behaviour:
-//   --lay-down=true  (default) loads the repo's projects.json from the restored staging tree,
-//     overlays any host-local overrides written by `mnemo map`, then calls LayDown to materialize
-//     each project's transcripts at the local path this machine's Claude expects.
-//   --lay-down=false restores into the target directory and stops there — useful for inspecting
-//     the raw staging tree without touching ~/.claude.
+//
+//	--lay-down=true  (default) loads the repo's projects.json from the restored staging tree,
+//	  overlays any host-local overrides written by `mnemo map`, then calls LayDown to materialize
+//	  each project's transcripts at the local path this machine's Claude expects.
+//	--lay-down=false restores into the target directory and stops there — useful for inspecting
+//	  the raw staging tree without touching ~/.claude.
 //
 // The --target flag sets the directory the staging tree lands in (default: ./mnemo-restore).
 // The restore subpath (what strips the absolute cache prefix from the snapshot tree) is derived

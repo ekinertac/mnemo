@@ -1,0 +1,66 @@
+version: 2
+
+project_name: mnemo
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: mnemo
+    main: .
+    binary: mnemo
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/ekinertac/mnemo/internal/command.Version={{ .Version }}
+
+archives:
+  - id: mnemo
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^ci:"
+      - "^chore:"
+      - Merge
+
+# Publishes a Homebrew cask to github.com/ekinertac/homebrew-tap so `brew install ekinertac/tap/mnemo`
+# works — declares `restic` as a dependency (brew installs it automatically if missing), and strips
+# the macOS quarantine attribute so the unsigned binary runs without a Gatekeeper prompt.
+homebrew_casks:
+  - name: mnemo
+    repository:
+      owner: ekinertac
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/ekinertac/mnemo"
+    description: "Sync Claude Code sessions across machines as encrypted, deduplicated, append-only restic snapshots"
+    dependencies:
+      - formula: restic
+    commit_author:
+      name: ekinertac
+      email: ekinertac@gmail.com
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/mnemo"]
+          end
+
+release:
+  github:
+    owner: ekinertac
+    name: mnemo
+  draft: false
+  prerelease: auto

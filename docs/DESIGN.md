@@ -7,8 +7,8 @@
 >
 > Named for Mnemosyne (memory): your sessions are working memory, carried between machines.
 
-This document is the architecture and rationale. It is written to be the first thing a new
-contributor (human or agent) reads. Pair it with `HANDOFF.md`.
+This document is the architecture and rationale — the first thing to read to understand how Mnemo
+works and why each decision was made.
 
 ---
 

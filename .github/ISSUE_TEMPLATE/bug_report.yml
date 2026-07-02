@@ -1,0 +1,42 @@
+name: Bug report
+description: Something isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+      placeholder: |
+        Steps: `mnemo push` from ~/Code/foo …
+        Expected: …
+        Got: …
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Command output
+      description: Re-run with `-v` (verbose) if relevant and paste the output. Redact any secrets.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: mnemo version
+      description: Output of `mnemo version`.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: OS and restic version
+      placeholder: "macOS 15 (arm64), restic 0.18.0"
+    validations:
+      required: true
+  - type: input
+    id: backend
+    attributes:
+      label: Backend
+      description: What restic backend? (local path, S3/B2, SFTP, rclone…) No credentials, please.
+      placeholder: "s3 (Backblaze B2)"

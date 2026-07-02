@@ -7,12 +7,12 @@ import (
 
 func TestEncodeReplacesNonAlnumWithDash(t *testing.T) {
 	cases := map[string]string{
-		"/Users/ekinertac/Code/foo":     "-Users-ekinertac-Code-foo",
-		"/Users/ekinertac/.dotfiles":    "-Users-ekinertac--dotfiles", // '/' and '.' both -> '-'
-		"/Users/ekinertac/Code/age.sh":  "-Users-ekinertac-Code-age-sh",
-		"ChatHumble":                    "ChatHumble", // case preserved
-		"a b":                           "a-b",        // space -> '-'
-		"café":                          "caf-",       // non-ASCII -> '-'
+		"/Users/ekinertac/Code/foo":    "-Users-ekinertac-Code-foo",
+		"/Users/ekinertac/.dotfiles":   "-Users-ekinertac--dotfiles", // '/' and '.' both -> '-'
+		"/Users/ekinertac/Code/age.sh": "-Users-ekinertac-Code-age-sh",
+		"ChatHumble":                   "ChatHumble", // case preserved
+		"a b":                          "a-b",        // space -> '-'
+		"café":                         "caf-",       // non-ASCII -> '-'
 	}
 	for in, want := range cases {
 		if got := Encode(in); got != want {
@@ -87,9 +87,9 @@ func TestToEncodedRoundTrip(t *testing.T) {
 // [A-Za-z0-9-]) is untouched, and '_' never appears in an identity so the mapping is unambiguous.
 func TestPathSafeRoundTrip(t *testing.T) {
 	cases := map[Identity]string{
-		"home:-Code-foo":       "home_-Code-foo",
+		"home:-Code-foo":        "home_-Code-foo",
 		"abs:-opt-services-bar": "abs_-opt-services-bar",
-		"home:":                "home_", // home root
+		"home:":                 "home_", // home root
 	}
 	for id, wantSeg := range cases {
 		seg := PathSafe(id)

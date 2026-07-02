@@ -3,10 +3,10 @@
 //
 // Why it works purely on the ENCODED string (the `projects/<encoded>` dir name) and never on a
 // decoded filesystem path: Claude encodes a cwd by replacing every non-alphanumeric character
-// with '-' (verified against real data — see docs/superpowers/plans/2026-06-13-m2-project-identity.md
-// step-0), which is irreversibly lossy (`age.sh` and `age-sh` collapse to the same string).
-// Decoding is therefore impossible in general; tokenizing the encoded string is not. Identity =
-// the encoded cwd with the machine-specific encoded-home prefix replaced by a token.
+// with '-' (verified against real data), which is irreversibly lossy (`age.sh` and `age-sh`
+// collapse to the same string). Decoding is therefore impossible in general; tokenizing the
+// encoded string is not. Identity = the encoded cwd with the machine-specific encoded-home
+// prefix replaced by a token.
 //
 // Related: internal/stage (uses this to key the staging tree), internal/restore (inverts it),
 // docs/DESIGN.md §4.4.
@@ -15,11 +15,12 @@ package identity
 import "strings"
 
 // Identity is a machine-independent project key. Two forms:
-//   home:<tail>   project under the user's home, tail is the encoded path below home (e.g.
-//                 "home:-Code-foo"). The home prefix is tokenized away, so it matches across
-//                 machines whose home-relative layout agrees, regardless of where home is.
-//   abs:<encoded> project outside home; the literal encoded absolute path. Matches only when
-//                 that encoded path is identical on both machines.
+//
+//	home:<tail>   project under the user's home, tail is the encoded path below home (e.g.
+//	              "home:-Code-foo"). The home prefix is tokenized away, so it matches across
+//	              machines whose home-relative layout agrees, regardless of where home is.
+//	abs:<encoded> project outside home; the literal encoded absolute path. Matches only when
+//	              that encoded path is identical on both machines.
 type Identity string
 
 // Encode reproduces Claude Code's cwd-encoding: every non-[A-Za-z0-9] rune becomes '-', case
