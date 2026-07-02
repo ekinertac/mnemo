@@ -2,8 +2,20 @@ package command
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// usage must write the help text to the given writer (so callers can send it to stdout for an
+// explicit --help, and stderr for the error path).
+func TestUsageWritesToWriter(t *testing.T) {
+	var buf strings.Builder
+	usage(&buf)
+	out := buf.String()
+	if !strings.Contains(out, "usage:") || !strings.Contains(out, "mnemo push") {
+		t.Errorf("usage output missing expected content:\n%s", out)
+	}
+}
 
 // resetConfigCache clears the package-level config cache so tests that exercise config loading
 // don't leak a prior test's config (the CLI loads once per process, but tests share the binary).

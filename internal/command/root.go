@@ -20,6 +20,7 @@ package command
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,8 +78,8 @@ func humanBytes(n int64) string {
 // never drops into an interactive menu (principle 8).
 func Execute(args []string) int {
 	if len(args) == 0 {
-		usage()
-		return 2
+		usage(os.Stdout)
+		return 0
 	}
 
 	sub, rest := args[0], args[1:]
@@ -109,11 +110,11 @@ func Execute(args []string) int {
 		fmt.Println("mnemo " + Version)
 		return 0
 	case "help", "-h", "--help":
-		usage()
+		usage(os.Stdout)
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "mnemo: unknown command %q\n\n", sub)
-		usage()
+		usage(os.Stderr)
 		return 2
 	}
 
@@ -124,8 +125,11 @@ func Execute(args []string) int {
 	return 0
 }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `mnemo — sync Claude Code sessions as restic snapshots
+// usage writes the help text to w. Explicit help (`mnemo help`/`-h`/`--help`) and the no-args
+// invocation write it to stdout (so it's visible and pipeable, e.g. `mnemo --help | less`); the
+// unknown-command error path writes it to stderr alongside the error.
+func usage(w io.Writer) {
+	fmt.Fprint(w, `mnemo — sync Claude Code sessions as restic snapshots
 
 usage:
   mnemo init     [--repo PATH]                                     create/attach a restic repo
