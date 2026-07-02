@@ -16,3 +16,6 @@ go.work.sum
 
 # OS
 .DS_Store
+
+# GoReleaser output
+/dist/
