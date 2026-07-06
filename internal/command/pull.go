@@ -16,8 +16,10 @@
 // stageRootDir. This is critical for cross-machine correctness: UserCacheDir differs per
 // OS/user, so the pushing machine's path won't match the pulling machine's local cache dir.
 //
-// Non-interactive (principle 8): pull never asks and never silently clobbers. Conflict policy
-// at file granularity is last-write-wins; .jsonl append-merge is M3.
+// Non-interactive (principle 8): pull never asks and never silently clobbers. pull passes a nil
+// base to LayDown (it has no merge-base source), so conflicts resolve by file type: .jsonl
+// union-merges (M3), everything else — including .md, which only 3-way-merges when a base is
+// available — is newer-mtime-wins.
 //
 // Related: internal/restore (LayDown/ResolveLocal), internal/manifest (overlay), root.go
 // (overlayLocalOverrides, restoreStagingTreeTo), internal/identity (EncodedHome).
