@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ekinertac/mnemo/internal/manifest"
 )
@@ -136,6 +137,49 @@ func TestLayDownOverwritesNonJSONL(t *testing.T) {
 	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "note.md"))
 	if string(got) != "new\n" {
 		t.Errorf("non-jsonl = %q, want overwrite to \"new\\n\"", got)
+	}
+}
+
+// claude --resume sorts sessions by file mtime, but the atomic write stamps every laid-down file
+// with "now". LayDown must reset a transcript's mtime to the newest timestamp INSIDE it so the
+// restored sessions keep their true last-activity order. The newest timestamp may sit mid-file
+// (summary/custom-title events interleave), so it is not simply the last line.
+func TestLayDownSetsMtimeFromNewestTimestamp(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	lines := `{"timestamp":"2026-03-01T10:00:00Z"}` + "\n" +
+		`{"timestamp":"2026-06-15T09:30:00Z"}` + "\n" + // newest, and NOT the last line
+		`{"type":"summary"}` + "\n" // a line without a timestamp must be tolerated
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/s.jsonl": lines})
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "s.jsonl")
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := time.Parse(time.RFC3339, "2026-06-15T09:30:00Z")
+	if !fi.ModTime().Equal(want) {
+		t.Errorf("mtime = %s, want %s (newest internal timestamp)", fi.ModTime().UTC(), want)
+	}
+}
+
+// history.jsonl encodes timestamps as integer ms-epoch (not ISO strings); its mtime must still be
+// restored from that integer form.
+func TestLayDownSetsMtimeFromIntegerTimestamp(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, restored, map[string]string{"history.jsonl": `{"timestamp":1700000000000}` + "\n"})
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(filepath.Join(claude, "history.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.UnixMilli(1700000000000); !fi.ModTime().Equal(want) {
+		t.Errorf("mtime = %s, want %s", fi.ModTime(), want)
 	}
 }
 

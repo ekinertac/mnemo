@@ -13,12 +13,15 @@
 package restore
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ekinertac/mnemo/internal/identity"
 	"github.com/ekinertac/mnemo/internal/manifest"
@@ -48,8 +51,13 @@ func LayDown(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Man
 		if !ok {
 			return nil // unmapped already recorded
 		}
-		if err := writeFile(p, filepath.Join(claudeRoot, filepath.FromSlash(dstRel))); err != nil {
+		dst := filepath.Join(claudeRoot, filepath.FromSlash(dstRel))
+		if err := writeFile(p, dst); err != nil {
 			return err
+		}
+		// Restore the session's real last-activity mtime; the atomic write above stamped it "now".
+		if strings.HasSuffix(dst, ".jsonl") {
+			stampMtimeFromContent(dst)
 		}
 		rep.LaidDown++
 		return nil
@@ -152,4 +160,71 @@ func writeAtomic(dst string, fill func(io.Writer) error) error {
 		return err
 	}
 	return os.Rename(tmpName, dst)
+}
+
+// stampMtimeFromContent sets path's mtime to the newest timestamp recorded inside a JSONL log.
+// `claude --resume` orders and dates sessions by file mtime, not by anything inside the transcript
+// (verified against real data). But writeAtomic lays every file down via temp-file + rename, which
+// stamps it with the restore time — so without this, a pull collapses every restored session to a
+// single "just now" date and destroys their true recency order. The real last-activity time lives
+// in the transcript's own `timestamp` fields, so we read it back. This also makes mtime a pure
+// function of content: the same session pulled on any machine gets the same mtime. No-op (leaves
+// the fresh mtime) when the file carries no parseable timestamp — e.g. an empty or non-transcript
+// .jsonl. Cost is one extra pass over the just-written file, acceptable at pull frequency.
+func stampMtimeFromContent(path string) {
+	if t, ok := newestTimestamp(path); ok {
+		_ = os.Chtimes(path, t, t)
+	}
+}
+
+// newestTimestamp scans a JSONL file and returns the latest `timestamp` across all its lines.
+// Scanning every line (not just the last) is deliberate: timestamps are not strictly ordered —
+// summary and custom-title events interleave — so the newest can sit mid-file. Lines without a
+// parseable timestamp are skipped. Uses a bufio.Reader (not Scanner) so a very long transcript
+// line (embedded image/tool output) can't silently truncate the scan.
+func newestTimestamp(path string) (time.Time, bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return time.Time{}, false
+	}
+	defer f.Close()
+	var newest time.Time
+	found := false
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadBytes('\n')
+		if len(line) > 0 {
+			if t, ok := lineTimestamp(line); ok && (!found || t.After(newest)) {
+				newest, found = t, true
+			}
+		}
+		if err != nil {
+			break
+		}
+	}
+	return newest, found
+}
+
+// lineTimestamp pulls the `timestamp` out of one JSONL record. Two encodings appear in Claude's
+// data: transcripts use ISO-8601 strings, history.jsonl uses integer ms-epoch — both are handled.
+func lineTimestamp(line []byte) (time.Time, bool) {
+	var rec struct {
+		Timestamp json.RawMessage `json:"timestamp"`
+	}
+	if json.Unmarshal(line, &rec) != nil || len(rec.Timestamp) == 0 {
+		return time.Time{}, false
+	}
+	if rec.Timestamp[0] == '"' { // ISO-8601 string
+		var s string
+		if json.Unmarshal(rec.Timestamp, &s) != nil {
+			return time.Time{}, false
+		}
+		t, err := time.Parse(time.RFC3339, s)
+		return t, err == nil
+	}
+	var ms int64 // integer ms-epoch
+	if json.Unmarshal(rec.Timestamp, &ms) != nil {
+		return time.Time{}, false
+	}
+	return time.UnixMilli(ms), true
 }
