@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ekinertac/mnemo/internal/filter"
 )
@@ -130,5 +131,28 @@ func TestBuildAppliesMapper(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(stageDir, "history.jsonl")); err != nil {
 		t.Errorf("non-project file should pass through: %v", err)
+	}
+}
+
+func TestCopyFilePreservesMtime(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	dst := filepath.Join(dir, "dst")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 3, 1, 10, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(src, want, want); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fi.ModTime().Equal(want) {
+		t.Fatalf("dst mtime = %s, want %s", fi.ModTime().UTC(), want)
 	}
 }

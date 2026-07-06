@@ -129,6 +129,10 @@ func copyFile(src, dst string) (int64, error) {
 		return 0, err
 	}
 	defer in.Close()
+	fi, err := in.Stat()
+	if err != nil {
+		return 0, err
+	}
 	out, err := os.Create(dst)
 	if err != nil {
 		return 0, err
@@ -138,5 +142,14 @@ func copyFile(src, dst string) (int64, error) {
 		out.Close()
 		return 0, err
 	}
-	return n, out.Close()
+	if err := out.Close(); err != nil {
+		return 0, err
+	}
+	// Preserve mtime so the snapshot records the file's real authoring time — restore's
+	// newer-wins tiebreak depends on it (hardlinked staging preserves it for free; this copy
+	// path is the cross-device fallback).
+	if err := os.Chtimes(dst, fi.ModTime(), fi.ModTime()); err != nil {
+		return 0, err
+	}
+	return n, nil
 }
