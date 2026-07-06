@@ -47,3 +47,19 @@ func TestStreamBackupNoSummary(t *testing.T) {
 		t.Error("expected error when no summary present")
 	}
 }
+
+func TestParseLatestSnapshotID(t *testing.T) {
+	// restic snapshots --json returns an array; the last element is the newest.
+	out := `[{"id":"aaa111","short_id":"aaa1"},{"id":"bbb222","short_id":"bbb2"}]`
+	id, ok, err := parseLatestSnapshotID(out)
+	if err != nil || !ok || id != "bbb222" {
+		t.Fatalf("got id=%q ok=%v err=%v, want bbb222,true,nil", id, ok, err)
+	}
+}
+
+func TestParseLatestSnapshotIDEmpty(t *testing.T) {
+	id, ok, err := parseLatestSnapshotID(`[]`)
+	if err != nil || ok || id != "" {
+		t.Fatalf("got id=%q ok=%v err=%v, want \"\",false,nil", id, ok, err)
+	}
+}

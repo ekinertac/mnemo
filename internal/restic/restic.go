@@ -19,6 +19,7 @@ package restic
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -389,4 +390,46 @@ func (r Repo) SnapshotCount(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("parsing restic snapshots json: %w", err)
 	}
 	return len(snaps), nil
+}
+
+// Dump returns the contents of a single file inside a snapshot (`restic dump <snapshot> <path>`).
+// Used to fetch the common-ancestor version of a file for a 3-way merge. path is the file's
+// absolute path as recorded in the snapshot (the snapshot's backup root joined with the file's
+// staging-relative path).
+func (r Repo) Dump(ctx context.Context, snapshot, path string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "restic", "dump", snapshot, path)
+	cmd.Env = r.childEnv()
+	var out, errBuf bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errBuf
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("restic dump %s %s: %w: %s", snapshot, path, err, strings.TrimSpace(errBuf.String()))
+	}
+	return out.Bytes(), nil
+}
+
+// LatestSnapshotIDForHost returns the newest snapshot tagged host=<host>. Mnemo tags every push
+// with host=<machine> (see push.go), so this finds this machine's last synced state — the correct
+// common ancestor for a 3-way merge of its local edits. ok=false when this machine has never pushed.
+func (r Repo) LatestSnapshotIDForHost(ctx context.Context, host string) (string, bool, error) {
+	out, err := r.runCapture(ctx, "snapshots", "--tag", "host="+host, "--latest", "1", "--json")
+	if err != nil {
+		return "", false, err
+	}
+	return parseLatestSnapshotID(out)
+}
+
+// parseLatestSnapshotID pulls the snapshot id out of `restic snapshots --json` output (the newest
+// is last). Factored out so it can be unit-tested without a live repo.
+func parseLatestSnapshotID(jsonOut string) (string, bool, error) {
+	var snaps []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(jsonOut), &snaps); err != nil {
+		return "", false, fmt.Errorf("parsing restic snapshots json: %w", err)
+	}
+	if len(snaps) == 0 || snaps[len(snaps)-1].ID == "" {
+		return "", false, nil
+	}
+	return snaps[len(snaps)-1].ID, true, nil
 }
