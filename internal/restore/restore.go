@@ -5,8 +5,9 @@
 //
 // Resolution precedence per identity: manifest override (this host) > home de-tokenization >
 // absolute-as-is. Under-home identities always resolve (placement is harmless even if the local
-// project dir doesn't exist yet), so M2 never drops a session. Conflict policy is last-write-wins
-// at file granularity; the .jsonl append-merge is M3 and slots in at writeFile.
+// project dir doesn't exist yet), so M2 never drops a session. Conflict policy is tiered by file
+// type at writeFile: .jsonl union-merges (M3), .md 3-way-merges against a caller-supplied common
+// ancestor (BaseFunc), everything else is newer-mtime-wins.
 //
 // Related: internal/identity (the inverse mapping), internal/manifest (overrides),
 // internal/command/pull.go (caller), docs/DESIGN.md §5.2.
@@ -29,13 +30,21 @@ import (
 )
 
 type Report struct {
-	LaidDown int
-	Unmapped []string // identities with no resolvable local path on this host
+	LaidDown   int
+	Unmapped   []string // identities with no resolvable local path on this host
+	Conflicted []string // .md files that came out of a 3-way merge with conflict markers
 }
 
+// BaseFunc returns the common-ancestor bytes for a staged file, keyed by its staging-relative path
+// (e.g. "by-id/home_-Code-foo/memory/n.md"), for use as the base of a 3-way .md merge. ok=false
+// when no ancestor is recoverable (first sync from this machine, or a newly-created file). A nil
+// BaseFunc disables 3-way merge, so .md files fall back to newer-wins — that is what pull passes.
+type BaseFunc func(stagingRel string) (base []byte, ok bool)
+
 // LayDown walks restoredRoot and materializes each file into claudeRoot. host/encodedHome and
-// the manifest drive identity resolution for by-id/ entries.
-func LayDown(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Manifest) (Report, error) {
+// the manifest drive identity resolution for by-id/ entries. base supplies merge ancestors for
+// .md 3-way merges (nil disables it — see BaseFunc).
+func LayDown(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Manifest, base BaseFunc) (Report, error) {
 	var rep Report
 	err := filepath.WalkDir(restoredRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
@@ -52,7 +61,7 @@ func LayDown(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Man
 			return nil // unmapped already recorded
 		}
 		dst := filepath.Join(claudeRoot, filepath.FromSlash(dstRel))
-		if err := writeFile(p, dst); err != nil {
+		if err := writeFile(p, dst, relSlash, dstRel, base, &rep); err != nil {
 			return err
 		}
 		// Restore the session's real last-activity mtime; the atomic write above stamped it "now".
@@ -106,29 +115,84 @@ func ResolveLocal(id identity.Identity, host, encodedHome string, m *manifest.Ma
 	return identity.ToEncoded(id, encodedHome)
 }
 
-// writeFile lays the incoming file (src) down at dst, creating parents. Conflict policy (M3): if
-// dst already exists AND both files are append-only JSONL logs, union-merge them (merge.JSONL) so
-// neither machine's appended lines are lost — the structural fix for claude-sync's last-writer-wins
-// data loss. Every other case (new file, or a non-.jsonl like memory/*.md) is last-write-wins.
-func writeFile(src, dst string) error {
+// writeFile lays the incoming file (src) down at dst, resolving conflicts by type when dst already
+// exists: .jsonl union-merges (append-only logs); .md 3-way-merges against the common ancestor
+// from base (when available); everything else is newer-mtime-wins. A brand-new file is a plain
+// copy. stagingRel keys the base lookup; dstRel is the ~/.claude-relative path used for reporting.
+func writeFile(src, dst, stagingRel, dstRel string, base BaseFunc, rep *Report) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
+	existing, err := os.ReadFile(dst)
+	if errors.Is(err, fs.ErrNotExist) {
+		return copyFile(src, dst) // new file
+	}
+	if err != nil {
+		return err
+	}
+
 	if strings.HasSuffix(dst, ".jsonl") {
-		if local, err := os.ReadFile(dst); err == nil {
+		incoming, err := os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		return writeAtomic(dst, func(w io.Writer) error {
+			_, err := w.Write(merge.JSONL(existing, incoming))
+			return err
+		})
+	}
+
+	if strings.HasSuffix(dst, ".md") && base != nil {
+		if baseBytes, ok := base(stagingRel); ok {
 			incoming, err := os.ReadFile(src)
 			if err != nil {
 				return err
 			}
-			return writeAtomic(dst, func(w io.Writer) error {
-				_, err := w.Write(merge.JSONL(local, incoming))
-				return err
-			})
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
+			merged, conflicts, mErr := merge.Text3Way(existing, baseBytes, incoming)
+			if mErr == nil {
+				if err := writeAtomic(dst, func(w io.Writer) error {
+					_, err := w.Write(merged)
+					return err
+				}); err != nil {
+					return err
+				}
+				if conflicts > 0 {
+					rep.Conflicted = append(rep.Conflicted, dstRel)
+				}
+				return nil
+			}
+			// A genuine git failure (not a conflict) falls through to newer-wins rather than
+			// aborting the whole lay-down for one file.
 		}
-		// dst absent — fall through to a plain copy.
 	}
+
+	return newerWins(src, dst)
+}
+
+// newerWins keeps whichever of incoming (src) or local (dst) was modified most recently. restic
+// restores each file with the mtime it was pushed with, so src's mtime is the incoming version's
+// real authoring time. When incoming wins, its mtime is carried onto dst so the comparison stays
+// meaningful on the next sync.
+func newerWins(src, dst string) error {
+	si, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	di, err := os.Stat(dst)
+	if err != nil {
+		return err
+	}
+	if !si.ModTime().After(di.ModTime()) {
+		return nil // local newer or equal: keep it
+	}
+	if err := copyFile(src, dst); err != nil {
+		return err
+	}
+	return os.Chtimes(dst, si.ModTime(), si.ModTime())
+}
+
+// copyFile atomically writes src's contents to dst.
+func copyFile(src, dst string) error {
 	return writeAtomic(dst, func(w io.Writer) error {
 		in, err := os.Open(src)
 		if err != nil {

@@ -17,8 +17,8 @@ func requireGit(t *testing.T) {
 func TestText3WayBothEditsSurvive(t *testing.T) {
 	requireGit(t)
 	base := []byte("alpha\nbeta\ngamma\n")
-	ours := []byte("alpha EDIT\nbeta\ngamma\n")     // changed first line
-	theirs := []byte("alpha\nbeta\ngamma EDIT\n")   // changed last line
+	ours := []byte("alpha EDIT\nbeta\ngamma\n")   // changed first line
+	theirs := []byte("alpha\nbeta\ngamma EDIT\n") // changed last line
 	got, conflicts, err := Text3Way(ours, base, theirs)
 	if err != nil {
 		t.Fatal(err)

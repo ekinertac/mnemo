@@ -3,10 +3,12 @@ package restore
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ekinertac/mnemo/internal/manifest"
+	"github.com/ekinertac/mnemo/internal/merge"
 )
 
 func write(t *testing.T, root string, files map[string]string) {
@@ -29,7 +31,7 @@ func TestLayDownReHomesUnderHomeIdentity(t *testing.T) {
 		"by-id/home_-Code-foo/s.jsonl": "session\n", // path-safe identity (':' -> '_'), as push writes it
 		"history.jsonl":                "hist\n",
 	})
-	rep, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", manifest.New())
+	rep, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", manifest.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +54,7 @@ func TestLayDownHonorsOverride(t *testing.T) {
 	write(t, restored, map[string]string{"by-id/home_-Code-foo/s.jsonl": "x\n"})
 	m := manifest.New()
 	m.SetOverride("win-desktop", "home:-Code-foo", "/d/work/foo")
-	if _, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", m); err != nil {
+	if _, err := LayDown(restored, claude, "win-desktop", "-Users-ekin", m, nil); err != nil {
 		t.Fatal(err)
 	}
 	// "/d/work/foo" encodes to "-d-work-foo".
@@ -89,7 +91,7 @@ func TestLayDownPassesThroughNonProjectData(t *testing.T) {
 		"plans/p.md":              "p\n",
 		"tasks/t.json":            "{}\n",
 	})
-	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New())
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,7 +117,7 @@ func TestLayDownMergesExistingJSONL(t *testing.T) {
 	write(t, claude, map[string]string{"history.jsonl": a + "\n" + c + "\n"})
 	write(t, restored, map[string]string{"history.jsonl": a + "\n" + b + "\n"})
 
-	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(filepath.Join(claude, "history.jsonl"))
@@ -125,18 +127,26 @@ func TestLayDownMergesExistingJSONL(t *testing.T) {
 	}
 }
 
-// A non-.jsonl existing file is still last-write-wins (only append-only logs merge).
+// A non-.jsonl existing file is newer-mtime-wins (only append-only logs merge; .md 3-way-merges).
 func TestLayDownOverwritesNonJSONL(t *testing.T) {
 	restored := t.TempDir()
 	claude := t.TempDir()
 	write(t, claude, map[string]string{"by-id/home_-Code-foo/memory/note.md": "old\n"})
 	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/note.md": "new\n"})
-	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+	// existing local dir where LayDown will write:
+	dst := filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "note.md")
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	os.WriteFile(dst, []byte("old\n"), 0o644)
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	os.Chtimes(dst, older, older)
+	os.Chtimes(filepath.Join(restored, "by-id", "home_-Code-foo", "memory", "note.md"), newer, newer)
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "note.md"))
+	got, _ := os.ReadFile(dst)
 	if string(got) != "new\n" {
-		t.Errorf("non-jsonl = %q, want overwrite to \"new\\n\"", got)
+		t.Errorf("non-jsonl newer-wins = %q, want \"new\\n\"", got)
 	}
 }
 
@@ -151,7 +161,7 @@ func TestLayDownSetsMtimeFromNewestTimestamp(t *testing.T) {
 		`{"timestamp":"2026-06-15T09:30:00Z"}` + "\n" + // newest, and NOT the last line
 		`{"type":"summary"}` + "\n" // a line without a timestamp must be tolerated
 	write(t, restored, map[string]string{"by-id/home_-Code-foo/s.jsonl": lines})
-	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil); err != nil {
 		t.Fatal(err)
 	}
 	dst := filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "s.jsonl")
@@ -171,7 +181,7 @@ func TestLayDownSetsMtimeFromIntegerTimestamp(t *testing.T) {
 	restored := t.TempDir()
 	claude := t.TempDir()
 	write(t, restored, map[string]string{"history.jsonl": `{"timestamp":1700000000000}` + "\n"})
-	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New()); err != nil {
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil); err != nil {
 		t.Fatal(err)
 	}
 	fi, err := os.Stat(filepath.Join(claude, "history.jsonl"))
@@ -189,11 +199,104 @@ func TestLayDownSurfacesMalformedByID(t *testing.T) {
 	restored := t.TempDir()
 	claude := t.TempDir()
 	write(t, restored, map[string]string{"by-id/orphan": "x\n"})
-	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New())
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if rep.LaidDown != 0 || len(rep.Unmapped) != 1 {
 		t.Errorf("orphan by-id file: LaidDown=%d Unmapped=%v, want 0 and one entry", rep.LaidDown, rep.Unmapped)
+	}
+}
+
+// A .md present on both sides 3-way-merges: non-overlapping edits from both machines survive, no
+// markers, nothing reported as conflicted.
+func TestLayDownMergesMarkdownBothEdits(t *testing.T) {
+	if err := merge.GitAvailable(); err != nil {
+		t.Skip("git not available:", err)
+	}
+	restored := t.TempDir()
+	claude := t.TempDir()
+	base := "one\ntwo\nthree\n"
+	// local (ours) changed line 1; incoming (theirs) changed line 3.
+	write(t, claude, map[string]string{"projects/-Users-ekin-Code-foo/memory/n.md": "one LOCAL\ntwo\nthree\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/n.md": "one\ntwo\nthree REMOTE\n"})
+
+	baseFn := func(rel string) ([]byte, bool) { return []byte(base), true }
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), baseFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"))
+	if !strings.Contains(string(got), "one LOCAL") || !strings.Contains(string(got), "three REMOTE") {
+		t.Fatalf("merge lost an edit:\n%s", got)
+	}
+	if len(rep.Conflicted) != 0 {
+		t.Fatalf("Conflicted = %v, want empty", rep.Conflicted)
+	}
+}
+
+// Same-line collision -> markers kept AND the file is reported in Conflicted.
+func TestLayDownReportsMarkdownConflict(t *testing.T) {
+	if err := merge.GitAvailable(); err != nil {
+		t.Skip("git not available:", err)
+	}
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, claude, map[string]string{"projects/-Users-ekin-Code-foo/memory/n.md": "LOCAL\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/n.md": "REMOTE\n"})
+	baseFn := func(rel string) ([]byte, bool) { return []byte("BASE\n"), true }
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), baseFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"))
+	if !strings.Contains(string(got), "<<<<<<<") {
+		t.Fatalf("expected conflict markers:\n%s", got)
+	}
+	want := "projects/-Users-ekin-Code-foo/memory/n.md"
+	if len(rep.Conflicted) != 1 || rep.Conflicted[0] != want {
+		t.Fatalf("Conflicted = %v, want [%s]", rep.Conflicted, want)
+	}
+}
+
+// With no recoverable base, a .md falls back to newer-mtime-wins.
+func TestLayDownMarkdownNoBaseNewerWins(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, claude, map[string]string{"projects/-Users-ekin-Code-foo/memory/n.md": "LOCAL\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/n.md": "REMOTE\n"})
+	// Make the incoming file the newer one deterministically.
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	os.Chtimes(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"), older, older)
+	os.Chtimes(filepath.Join(restored, "by-id", "home_-Code-foo", "memory", "n.md"), newer, newer)
+
+	noBase := func(rel string) ([]byte, bool) { return nil, false }
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), noBase); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"))
+	if string(got) != "REMOTE\n" {
+		t.Fatalf("newer-wins: got %q, want REMOTE (incoming was newer)", got)
+	}
+}
+
+// Local newer than incoming -> local kept.
+func TestLayDownNewerWinsKeepsLocal(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, claude, map[string]string{"projects/-Users-ekin-Code-foo/memory/n.md": "LOCAL\n"})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/n.md": "REMOTE\n"})
+	older := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+	os.Chtimes(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"), newer, newer)
+	os.Chtimes(filepath.Join(restored, "by-id", "home_-Code-foo", "memory", "n.md"), older, older)
+	noBase := func(rel string) ([]byte, bool) { return nil, false }
+	if _, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), noBase); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"))
+	if string(got) != "LOCAL\n" {
+		t.Fatalf("newer-wins: got %q, want LOCAL (local was newer)", got)
 	}
 }

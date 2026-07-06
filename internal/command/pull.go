@@ -110,7 +110,7 @@ func runPull(args []string) error {
 	if err := overlayLocalOverrides(man, host); err != nil {
 		return err
 	}
-	rep, err := restore.LayDown(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man)
+	rep, err := restore.LayDown(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man, nil)
 	if err != nil {
 		return err
 	}
