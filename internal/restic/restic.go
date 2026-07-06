@@ -409,7 +409,7 @@ func (r Repo) Dump(ctx context.Context, snapshot, path string) ([]byte, error) {
 }
 
 // LatestSnapshotIDForHost returns the newest snapshot tagged host=<host>. Mnemo tags every push
-// with host=<machine> (see push.go), so this finds this machine's last synced state — the correct
+// with host=<machine> (see push.go), so this finds this machine's last synced state, the correct
 // common ancestor for a 3-way merge of its local edits. ok=false when this machine has never pushed.
 func (r Repo) LatestSnapshotIDForHost(ctx context.Context, host string) (string, bool, error) {
 	out, err := r.runCapture(ctx, "snapshots", "--tag", "host="+host, "--latest", "1", "--json")
