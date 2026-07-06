@@ -92,6 +92,8 @@ func Execute(args []string) int {
 		err = runPush(rest)
 	case "pull", "restore":
 		err = runPull(rest)
+	case "sync":
+		err = runSync(rest)
 	case "log":
 		err = runLog(rest)
 	case "map":
@@ -136,6 +138,7 @@ usage:
   mnemo push     [--repo PATH] [--path DIR]                        snapshot Claude sessions     (alias: snapshot)
   mnemo pull     [--repo PATH] [--snapshot ID] [--target DIR]      restore and lay down         (alias: restore)
                  [--lay-down=false]                                 (--lay-down=false: raw restore only)
+  mnemo sync     [--repo PATH]                                     pull-merge-then-push in one step
   mnemo log      [--repo PATH]                                     list snapshots
   mnemo map      <identity> <local-path>                           record a host-local path override (offline)
   mnemo projects [--repo PATH] [--unmapped]                        list project identities and local resolution
