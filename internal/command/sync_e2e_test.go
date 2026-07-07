@@ -1,3 +1,5 @@
+//go:build e2e
+
 // sync_e2e_test.go drives the merge tier through a real local restic repo and real git: machine A
 // pushes a memory file, both A and B edit different lines, and a lay-down using A's snapshot as the
 // base must preserve both edits. Skips when restic or git is absent (needs both binaries).
