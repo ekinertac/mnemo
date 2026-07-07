@@ -14,7 +14,7 @@ project identity rather than a raw filesystem path.
 ```console
 $ mnemo init
 $ mnemo sync
-mnemo: empty repo — first sync is a push
+mnemo: empty repo, first sync is a push
 mnemo: pushing to b2:my-sessions …
   uploading [481/481 files] 100%
 mnemo: pushed ✓  snapshot a1b2c3d4 · 481 files · 1.8 MiB uploaded (only changes sent)
@@ -66,7 +66,7 @@ Mnemo needs both [`restic`](https://restic.net) and `git` on your `PATH`; the in
 both in for you. `git` is only ever run locally, to 3-way-merge `.md` files during `sync`; nothing is
 pushed to a remote or exposes your sessions to any git hosting.
 
-**Homebrew** (macOS/Linux) — installs `restic` and `git` automatically:
+**Homebrew** (macOS/Linux), installs `restic` and `git` automatically:
 
 ```sh
 brew install ekinertac/tap/mnemo
@@ -114,7 +114,7 @@ progress counter on a terminal and raw `restic` behind `-v`.
 ## Status
 
 Working and in daily use on macOS, validated end-to-end against a real Backblaze B2 (S3) backend.
-The full CLI — `sync` `push` `pull` `log` `map` `projects` `machines` `verify` `prune` `doctor` — is built.
+The full CLI (`sync`, `push`, `pull`, `log`, `map`, `projects`, `machines`, `verify`, `prune`, `doctor`) is built.
 Still to verify: a live **Mac⇄Windows** resume (the Windows path handling is unit-tested, not yet
 run on a real Windows box).
 

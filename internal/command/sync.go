@@ -61,7 +61,7 @@ func runSync(args []string) error {
 		return err
 	}
 	if count == 0 {
-		fmt.Println("mnemo: empty repo — first sync is a push")
+		fmt.Println("mnemo: empty repo, first sync is a push")
 	} else {
 		fmt.Printf("mnemo: syncing with %s …\n", repoName(desc))
 		target, cleanup, err := restoreStagingTree(ctx, repo, "latest")
