@@ -24,5 +24,14 @@ go.work.sum
 /docs/superpowers/
 
 # mkdown artifacts (auto-managed)
+.superpowers/sdd/task-7-report.html
+docs/DESIGN.html
+README.html
+.superpowers/sdd/task-6-report.html
+.superpowers/sdd/task-5-report.html
+.superpowers/sdd/task-4-report.html
+.superpowers/sdd/task-3-report.html
+.superpowers/sdd/task-2-report.html
+.superpowers/sdd/task-1-report.html
 docs/superpowers/plans/2026-07-07-sync-command.html
 docs/superpowers/specs/2026-07-07-sync-command-design.html
