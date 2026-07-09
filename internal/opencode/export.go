@@ -26,7 +26,7 @@ import (
 )
 
 // lineFromRow builds a single JSONL line from a table name, row ID, data map,
-// and timestamp (epoch ms). The returned bytes include a trailing newline.
+// and timestamp (epoch ms). The returned bytes are valid JSON without a trailing newline — the caller is responsible for joining lines.
 func lineFromRow(table, id string, data map[string]any, timestamp int64) ([]byte, error) {
 	rec := map[string]any{
 		"type":      "row",
@@ -416,7 +416,7 @@ func ExportSession(snap *sql.DB, sessionID string) ([]byte, error) {
 	}
 
 	// Sort by timestamp
-	sort.Slice(lines, func(i, j int) bool {
+	sort.SliceStable(lines, func(i, j int) bool {
 		return extractTimestamp(lines[i]) < extractTimestamp(lines[j])
 	})
 
@@ -451,6 +451,8 @@ func ExportMachineRows(snap *sql.DB) ([]byte, error) {
 				line, err = lineFromRow(table, pk, controlAccountToMap(r), r.TimeUpdated)
 			case PermissionRow:
 				line, err = lineFromRow(table, r.ID, permissionToMap(r), r.TimeUpdated)
+			default:
+				continue
 			}
 			if err != nil {
 				return nil, fmt.Errorf("%s row: %w", table, err)
@@ -472,7 +474,7 @@ func ExportMachineRows(snap *sql.DB) ([]byte, error) {
 		lines = append(lines, line)
 	}
 
-	sort.Slice(lines, func(i, j int) bool {
+	sort.SliceStable(lines, func(i, j int) bool {
 		return extractTimestamp(lines[i]) < extractTimestamp(lines[j])
 	})
 
