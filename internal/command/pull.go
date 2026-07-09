@@ -34,6 +34,7 @@ import (
 
 	"github.com/ekinertac/mnemo/internal/identity"
 	"github.com/ekinertac/mnemo/internal/manifest"
+	"github.com/ekinertac/mnemo/internal/opencode"
 	"github.com/ekinertac/mnemo/internal/restic"
 	"github.com/ekinertac/mnemo/internal/restore"
 )
@@ -124,6 +125,14 @@ func runPull(args []string) error {
 		for _, id := range rep.Unmapped {
 			fmt.Printf("  unmapped: %s  →  mnemo map %s <local-path>\n", id, id)
 		}
+	}
+
+	ocDB, err := defaultOpenCodeDB()
+	if err != nil {
+		return err
+	}
+	if err := opencode.Restore(target, ocDB, host, identity.EncodedHome(home), man); err != nil {
+		fmt.Fprintf(os.Stderr, "mnemo: warning: opencode restore: %v\n", err)
 	}
 	return nil
 }

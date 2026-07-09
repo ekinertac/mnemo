@@ -228,6 +228,15 @@ func defaultClaudeDir() (string, error) {
 	return filepath.Join(home, ".claude"), nil
 }
 
+// defaultOpenCodeDB returns the default path to the OpenCode SQLite database.
+func defaultOpenCodeDB() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "share", "opencode", "opencode.db"), nil
+}
+
 // stageRootDir is the fixed location Mnemo materializes its staging tree into before handing
 // it to restic. It is intentionally STABLE across pushes (not a random temp dir): restic
 // detects a parent snapshot by backup path, so a constant path lets incremental pushes skip
