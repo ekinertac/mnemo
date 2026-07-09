@@ -320,8 +320,8 @@ func queryTodos(db *sql.DB, sessionID string) ([]TodoRow, error) {
 	return result, rows.Err()
 }
 
-func queryEvents(db *sql.DB, sessionID string) ([]EventRow, error) {
-	rows, err := db.Query(eventCols, sessionID)
+func queryEvents(db *sql.DB, aggregateID string) ([]EventRow, error) {
+	rows, err := db.Query(eventCols, aggregateID)
 	if err != nil {
 		return nil, fmt.Errorf("query events: %w", err)
 	}
