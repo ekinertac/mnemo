@@ -139,7 +139,7 @@ func TestRestore_missingByID(t *testing.T) {
 	}
 }
 
-func TestRestore_missingOpendcodeSessions(t *testing.T) {
+func TestRestore_missingOpenCodeSessions(t *testing.T) {
 	db, dbPath := setupTestDB(t)
 	defer db.Close()
 	defer os.Remove(dbPath)
