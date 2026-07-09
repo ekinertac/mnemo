@@ -62,13 +62,13 @@ func Stage(dbPath, stageRoot, encHome string) (int, error) {
 		byIdentity[id] = append(byIdentity[id], s)
 	}
 
-	for id, sessions := range byIdentity {
+	for id, ss := range byIdentity {
 		idSafe := identity.PathSafe(id)
 		baseDir := filepath.Join(stageRoot, "by-id", idSafe, "opencode-sessions")
 		if err := os.MkdirAll(baseDir, 0755); err != nil {
-			return 0, err
+			return 0, fmt.Errorf("create staging dir %s: %w", baseDir, err)
 		}
-		for _, s := range sessions {
+		for _, s := range ss {
 			data, err := ExportSession(db, s.ID)
 			if err != nil {
 				return 0, fmt.Errorf("export session %s: %w", s.ID, err)
