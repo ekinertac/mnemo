@@ -25,6 +25,7 @@ import (
 	"github.com/ekinertac/mnemo/internal/filter"
 	"github.com/ekinertac/mnemo/internal/identity"
 	"github.com/ekinertac/mnemo/internal/manifest"
+	"github.com/ekinertac/mnemo/internal/opencode"
 	"github.com/ekinertac/mnemo/internal/restic"
 	"github.com/ekinertac/mnemo/internal/stage"
 )
@@ -125,6 +126,17 @@ func runPush(args []string) error {
 
 	if res.Included == 0 {
 		return fmt.Errorf("staging tree is empty — nothing durable found under %s", src)
+	}
+
+	ocDB, err := defaultOpenCodeDB()
+	if err != nil {
+		return err
+	}
+	ocCount, err := opencode.Stage(ocDB, stageRoot, identity.EncodedHome(home))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "mnemo: warning: opencode stage: %v\n", err)
+	} else if ocCount > 0 {
+		fmt.Printf("mnemo: staged %d opencode sessions\n", ocCount)
 	}
 
 	if *dryRun {
