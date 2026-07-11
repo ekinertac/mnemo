@@ -89,6 +89,9 @@ func runSync(args []string) error {
 		for _, id := range rep.Unmapped {
 			fmt.Printf("  unmapped: %s  →  mnemo map %s <local-path>\n", id, id)
 		}
+		if len(rep.Skipped) > 0 {
+			fmt.Printf("mnemo: skipped %d corrupt project identit(y/ies) (unexpanded ${HOME}); not laid down\n", len(rep.Skipped))
+		}
 		if len(rep.Conflicted) > 0 {
 			fmt.Printf("mnemo: %d file(s) merged with conflicts — edit the markers, then re-run sync:\n", len(rep.Conflicted))
 			for _, f := range rep.Conflicted {

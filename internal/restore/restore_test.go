@@ -193,6 +193,56 @@ func TestLayDownSetsMtimeFromIntegerTimestamp(t *testing.T) {
 	}
 }
 
+// An unchanged .md (identical on both sides) must NOT trigger the base fetch: the base is a remote
+// restic dump, and doing it per-file for hundreds of untouched memory files is the sync's main cost.
+func TestLayDownSkipsBaseFetchForUnchangedMarkdown(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	const same = "one\ntwo\nthree\n"
+	write(t, claude, map[string]string{"projects/-Users-ekin-Code-foo/memory/n.md": same})
+	write(t, restored, map[string]string{"by-id/home_-Code-foo/memory/n.md": same})
+	called := false
+	baseFn := func(string) ([]byte, bool) { called = true; return []byte("base"), true }
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), baseFn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called {
+		t.Error("base fetch ran for an unchanged .md; it should be skipped")
+	}
+	if len(rep.Conflicted) != 0 {
+		t.Errorf("Conflicted = %v, want empty", rep.Conflicted)
+	}
+	got, _ := os.ReadFile(filepath.Join(claude, "projects", "-Users-ekin-Code-foo", "memory", "n.md"))
+	if string(got) != same {
+		t.Errorf("unchanged .md was altered: %q", got)
+	}
+}
+
+// A corrupt project identity (one carrying an unexpanded ${HOME}, which Claude's encoding can never
+// produce) must be skipped, not laid down, and surfaced in the report. Valid siblings still land.
+func TestLayDownSkipsCorruptIdentity(t *testing.T) {
+	restored := t.TempDir()
+	claude := t.TempDir()
+	write(t, restored, map[string]string{
+		"by-id/abs_${HOME}-Code-foo/memory/x.md": "junk\n", // ':' -> '_' path-safe; ${HOME} is corrupt
+		"by-id/home_-Code-ok/s.jsonl":            "good\n",
+	})
+	rep, err := LayDown(restored, claude, "h", "-Users-ekin", manifest.New(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "projects", "-Users-ekin-Code-ok", "s.jsonl")); err != nil {
+		t.Errorf("valid session should still lay down: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(claude, "projects", "${HOME}-Code-foo", "memory", "x.md")); !os.IsNotExist(err) {
+		t.Error("corrupt ${HOME} identity was laid down; it should be skipped")
+	}
+	if len(rep.Skipped) != 1 {
+		t.Errorf("Skipped = %v, want exactly one corrupt identity", rep.Skipped)
+	}
+}
+
 // A file directly under by-id/ (no identity subdir) must be surfaced in Unmapped, never
 // silently dropped — the never-drop invariant.
 func TestLayDownSurfacesMalformedByID(t *testing.T) {

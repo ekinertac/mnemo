@@ -125,5 +125,8 @@ func runPull(args []string) error {
 			fmt.Printf("  unmapped: %s  →  mnemo map %s <local-path>\n", id, id)
 		}
 	}
+	if len(rep.Skipped) > 0 {
+		fmt.Printf("mnemo: skipped %d corrupt project identit(y/ies) (unexpanded ${HOME}); not laid down\n", len(rep.Skipped))
+	}
 	return nil
 }

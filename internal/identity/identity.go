@@ -39,6 +39,25 @@ func Encode(p string) string {
 	return b.String()
 }
 
+// Valid reports whether s is a well-formed encoded project name: non-empty and made only of the
+// characters Encode ever emits ([A-Za-z0-9-]). Claude's encoding maps every other rune to '-', so
+// a name still carrying a '$', '{', '}', '/', or '.' was never produced by Encode. It is corrupt,
+// typically a path with an unexpanded shell variable (e.g. "${HOME}-Code-foo") that leaked in from
+// a broken restore. Stage and restore use this to refuse to propagate or lay down such garbage.
+func Valid(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // EncodedHome returns this machine's encoded-home prefix — Claude's encoding of $HOME. On
 // Windows the drive letter is stripped first, because Claude encodes user-profile paths without
 // it (step-0 finding: C:\Users\u and /Users/u both -> -Users-u). This is the one OS-specific

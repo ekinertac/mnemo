@@ -5,6 +5,21 @@ import (
 	"testing"
 )
 
+func TestValid(t *testing.T) {
+	// Anything Encode can produce is valid.
+	for _, ok := range []string{"-Users-ekinertac-Code-foo", "ChatHumble", "a-b", "caf-", "-d-work-foo"} {
+		if !Valid(ok) {
+			t.Errorf("Valid(%q) = false, want true", ok)
+		}
+	}
+	// A literal ${HOME} (or any char Encode never emits: $ { } / .) is corrupt.
+	for _, bad := range []string{"${HOME}-Code-kinship", "${HOME}", "-Users/ekin", "a.b", "", "a b"} {
+		if Valid(bad) {
+			t.Errorf("Valid(%q) = true, want false", bad)
+		}
+	}
+}
+
 func TestEncodeReplacesNonAlnumWithDash(t *testing.T) {
 	cases := map[string]string{
 		"/Users/ekinertac/Code/foo":    "-Users-ekinertac-Code-foo",

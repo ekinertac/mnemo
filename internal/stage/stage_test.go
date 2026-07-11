@@ -9,6 +9,39 @@ import (
 	"github.com/ekinertac/mnemo/internal/filter"
 )
 
+// A mapper returning "" means "skip this file"; Build must not materialize it and must count it
+// as corrupt (used to drop project dirs with a broken, unencodable identity).
+func TestBuildSkipsWhenMapperReturnsEmpty(t *testing.T) {
+	src := t.TempDir()
+	dst := t.TempDir()
+	writeTree(t, src, map[string]string{
+		"history.jsonl":                      "keep", // durable, passes through
+		"projects/-Users-x-Code-foo/s.jsonl": "drop", // durable, but the mapper drops it
+	})
+	drop := func(rel string) string {
+		if filepath.Base(rel) == "s.jsonl" {
+			return ""
+		}
+		return rel
+	}
+	res, err := Build(src, dst, filter.Classifier{}, drop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dst, "projects", "-Users-x-Code-foo", "s.jsonl")); !os.IsNotExist(err) {
+		t.Error("file the mapper dropped was still materialized")
+	}
+	if _, err := os.Stat(filepath.Join(dst, "history.jsonl")); err != nil {
+		t.Errorf("kept file missing: %v", err)
+	}
+	if res.Corrupt != 1 {
+		t.Errorf("Corrupt = %d, want 1", res.Corrupt)
+	}
+	if res.Included != 1 {
+		t.Errorf("Included = %d, want 1", res.Included)
+	}
+}
+
 // writeTree materializes a map of relpath->content under root, creating parent dirs.
 func writeTree(t *testing.T, root string, files map[string]string) {
 	t.Helper()

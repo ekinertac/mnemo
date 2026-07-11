@@ -31,6 +31,8 @@ import (
 // Mapper rewrites a source-relative path to its staging-relative path. nil means identity
 // (mirror the source layout — M1 behavior). M2 supplies a mapper that rewrites
 // projects/<encoded-cwd>/<rest> to by-id/<identity>/<rest> so snapshots are machine-independent.
+// Returning "" tells Build to skip the file entirely — used to drop a project dir whose identity
+// is corrupt (an unencodable ${HOME}) so it never enters a snapshot.
 type Mapper func(rel string) string
 
 // Result reports what a Build did, for messaging and `doctor`-style diagnostics. Skipped is
@@ -40,6 +42,7 @@ type Result struct {
 	Included int                  // files materialized into the staging tree
 	Bytes    int64                // total bytes of included files
 	Skipped  map[filter.Class]int // count of skipped files, by reason
+	Corrupt  int                  // durable files the mapper dropped for a corrupt identity
 }
 
 // Build walks srcRoot (typically ~/.claude), classifies every entry with c, and materializes
@@ -91,6 +94,10 @@ func Build(srcRoot, stageRoot string, c filter.Classifier, m Mapper) (Result, er
 		}
 
 		dstRel := m(rel)
+		if dstRel == "" {
+			res.Corrupt++ // mapper refused this file (corrupt identity); never staged
+			return nil
+		}
 		n, err := materialize(p, filepath.Join(stageRoot, dstRel))
 		if err != nil {
 			return err

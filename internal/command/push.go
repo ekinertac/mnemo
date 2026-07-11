@@ -48,6 +48,11 @@ func projectIdentityMapper(encHome string) stage.Mapper {
 			return rel
 		}
 		enc, tail := rest[:slash], rest[slash+1:]
+		if !identity.Valid(enc) {
+			// A project dir name that isn't pure [A-Za-z0-9-] is corrupt (an unexpanded ${HOME} a
+			// broken restore left behind). Drop it so it never enters a snapshot and can't loop back.
+			return ""
+		}
 		id := identity.FromEncoded(enc, encHome)
 		// PathSafe so the dir name is legal on every filesystem (NTFS forbids the scheme ':').
 		return filepath.FromSlash("by-id/" + identity.PathSafe(id) + "/" + tail)
@@ -122,6 +127,9 @@ func runPush(args []string) error {
 	fmt.Printf("mnemo: staged %d durable files (%s); skipped %d ephemeral, %d config, %d unknown\n",
 		res.Included, humanBytes(res.Bytes),
 		res.Skipped[filter.Ephemeral], res.Skipped[filter.Config], res.Skipped[filter.Unknown])
+	if res.Corrupt > 0 {
+		fmt.Printf("mnemo: skipped %d file(s) with a corrupt project identity (unexpanded ${HOME})\n", res.Corrupt)
+	}
 
 	if res.Included == 0 {
 		return fmt.Errorf("staging tree is empty — nothing durable found under %s", src)

@@ -15,6 +15,7 @@ package restore
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -33,6 +34,7 @@ type Report struct {
 	LaidDown   int
 	Unmapped   []string // identities with no resolvable local path on this host
 	Conflicted []string // .md files that came out of a 3-way merge with conflict markers
+	Skipped    []string // corrupt identities refused (e.g. an unexpanded ${HOME}); never laid down
 }
 
 // BaseFunc returns the common-ancestor bytes for a staged file, keyed by its staging-relative path
@@ -99,6 +101,14 @@ func resolveDst(relSlash, host, encodedHome string, m *manifest.Manifest, rep *R
 		rep.Unmapped = append(rep.Unmapped, string(id))
 		return "", false
 	}
+	if !identity.Valid(localEncoded) {
+		// A resolved dir name that still isn't pure [A-Za-z0-9-] came from a corrupt identity —
+		// typically an unexpanded ${HOME} baked into an old snapshot by a broken restore. Refuse it:
+		// laying it down recreates garbage project dirs Claude can never read, and the next push
+		// re-propagates them, so a single poisoned entry otherwise loops forever.
+		rep.Skipped = append(rep.Skipped, string(id))
+		return "", false
+	}
 	return "projects/" + localEncoded + "/" + tail, true
 }
 
@@ -142,27 +152,36 @@ func writeFile(src, dst, stagingRel, dstRel string, base BaseFunc, rep *Report) 
 		})
 	}
 
-	if strings.HasSuffix(dst, ".md") && base != nil {
-		if baseBytes, ok := base(stagingRel); ok {
-			incoming, err := os.ReadFile(src)
-			if err != nil {
-				return err
-			}
-			merged, conflicts, mErr := merge.Text3Way(existing, baseBytes, incoming)
-			if mErr == nil {
-				if err := writeAtomic(dst, func(w io.Writer) error {
-					_, err := w.Write(merged)
-					return err
-				}); err != nil {
-					return err
+	if strings.HasSuffix(dst, ".md") {
+		incoming, err := os.ReadFile(src)
+		if err != nil {
+			return err
+		}
+		// Fast path: an unchanged file is the common case (most memory notes don't move between
+		// syncs). Skip the 3-way merge entirely — and, crucially, its base fetch, which is a remote
+		// restic dump. Doing that dump per-file for hundreds of untouched .md files is what made
+		// sync slow. Only diverging files pay for a base.
+		if bytes.Equal(existing, incoming) {
+			return nil
+		}
+		if base != nil {
+			if baseBytes, ok := base(stagingRel); ok {
+				merged, conflicts, mErr := merge.Text3Way(existing, baseBytes, incoming)
+				if mErr == nil {
+					if err := writeAtomic(dst, func(w io.Writer) error {
+						_, err := w.Write(merged)
+						return err
+					}); err != nil {
+						return err
+					}
+					if conflicts > 0 {
+						rep.Conflicted = append(rep.Conflicted, dstRel)
+					}
+					return nil
 				}
-				if conflicts > 0 {
-					rep.Conflicted = append(rep.Conflicted, dstRel)
-				}
-				return nil
+				// A genuine git failure (not a conflict) falls through to newer-wins rather than
+				// aborting the whole lay-down for one file.
 			}
-			// A genuine git failure (not a conflict) falls through to newer-wins rather than
-			// aborting the whole lay-down for one file.
 		}
 	}
 
