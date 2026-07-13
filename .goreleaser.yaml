@@ -36,9 +36,8 @@ changelog:
       - Merge
 
 # Publishes a Homebrew cask to github.com/ekinertac/homebrew-tap so `brew install ekinertac/tap/mnemo`
-# works — declares `restic` and `git` as dependencies (brew installs both automatically if missing;
-# mnemo sync shells out to git for its 3-way merge), and strips the macOS quarantine attribute so the
-# unsigned binary runs without a Gatekeeper prompt.
+# works — declares `restic` as a dependency (brew installs it automatically if missing), and strips
+# the macOS quarantine attribute so the unsigned binary runs without a Gatekeeper prompt.
 homebrew_casks:
   - name: mnemo
     repository:
@@ -49,7 +48,6 @@ homebrew_casks:
     description: "Sync Claude Code sessions across machines as encrypted, deduplicated, append-only restic snapshots"
     dependencies:
       - formula: restic
-      - formula: git
     commit_author:
       name: ekinertac
       email: ekinertac@gmail.com

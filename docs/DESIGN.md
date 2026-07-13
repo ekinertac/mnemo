@@ -281,24 +281,6 @@ hands *that* to `restic backup`. `mnemo pull` runs `restic restore` of the chose
 into a temp dir, then applies §5.2 lay-down into `~/.claude/`. Staging keeps the restic repo
 clean and machine-independent, and keeps lay-down logic out of restic.
 
-### 5.5 `mnemo sync` and the tiered merge
-
-`mnemo sync` is pull-then-push in one step: it lays down the latest snapshot (§5.2, §5.4), then
-runs the same push path to store the merged result. On an empty repo there's nothing to pull, so
-sync degrades cleanly to a plain push. Lay-down picks a merge strategy per file: `.jsonl` files
-union-merge (§5.3); `.md` files 3-way-merge with `git merge-file`, using this host's own previous
-snapshot as the base (fetched with `restic dump`); everything else is newer-mtime-wins. Because
-the 3-way path shells out to `git`, `sync` requires `git` on `PATH` in addition to `restic`, and
-checks for both before touching anything.
-
-The base for the `.md` merge is an approximation, not a true merge-base: it's the last snapshot
-*this host* pushed, not the actual common ancestor of the two edits being reconciled (restic
-doesn't track one). Most of the time that's close enough for `git merge-file` to resolve cleanly;
-the known limitation is that it occasionally leaves a conflict marker in a spot a precise
-merge-base would have resolved on its own. It never loses data: a spurious conflict still keeps
-both sides' text, just with an extra marker to clean up by hand. `mnemo sync` lists every
-conflicted file after it runs so those are easy to find.
-
 ---
 
 ## 6. CLI surface

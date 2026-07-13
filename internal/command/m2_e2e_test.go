@@ -75,7 +75,7 @@ func TestM2CrossHomeResume(t *testing.T) {
 	// "Machine B": lay down with a DIFFERENT encoded home -Users-BBB. The restore layer should
 	// re-home by-id/home_-Code-foo/s.jsonl → projects/-Users-BBB-Code-foo/s.jsonl.
 	claudeB := t.TempDir()
-	rep, err := restore.LayDown(restored, claudeB, "machineB", "-Users-BBB", manifest.New(), nil)
+	rep, err := restore.LayDown(restored, claudeB, "machineB", "-Users-BBB", manifest.New())
 	if err != nil {
 		t.Fatal(err)
 	}

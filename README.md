@@ -12,18 +12,14 @@ append-only snapshots — then lays them back down where `claude --resume` finds
 project identity rather than a raw filesystem path.
 
 ```console
-$ mnemo init
-$ mnemo sync
-mnemo: empty repo, first sync is a push
+$ mnemo push
 mnemo: pushing to b2:my-sessions …
   uploading [481/481 files] 100%
 mnemo: pushed ✓  snapshot a1b2c3d4 · 481 files · 1.8 MiB uploaded (only changes sent)
 
 # …later, on your other machine:
-$ mnemo init
-$ mnemo sync
-mnemo: merged 481 files into ~/.claude
-mnemo: pushed ✓  snapshot e5f6a7b8 · 481 files · 0 B uploaded (only changes sent)
+$ mnemo pull
+mnemo: pulled ✓  laid down 481 files into ~/.claude
 $ claude --resume          # the session you started on your laptop is right here
 ```
 
@@ -62,25 +58,22 @@ cron, CI, or a hook.
 
 ## Install
 
-Mnemo needs both [`restic`](https://restic.net) and `git` on your `PATH`; the installers below pull
-both in for you. `git` is only ever run locally, to 3-way-merge `.md` files during `sync`; nothing is
-pushed to a remote or exposes your sessions to any git hosting.
+Mnemo needs [`restic`](https://restic.net) on your `PATH` — the installers below pull it in for you.
 
-**Homebrew** (macOS/Linux), installs `restic` and `git` automatically:
+**Homebrew** (macOS/Linux) — installs `restic` automatically:
 
 ```sh
 brew install ekinertac/tap/mnemo
 ```
 
-**`go install`** (needs [Go](https://go.dev) 1.23+ and `restic`/`git` already installed):
+**`go install`** (needs [Go](https://go.dev) 1.23+ and `restic` already installed):
 
 ```sh
 go install github.com/ekinertac/mnemo@latest   # drops mnemo in $(go env GOPATH)/bin
 ```
 
 **Prebuilt binaries** — grab a `.tar.gz` for your OS/arch from the
-[Releases page](https://github.com/ekinertac/mnemo/releases) (remember to install `restic` and
-`git` too).
+[Releases page](https://github.com/ekinertac/mnemo/releases) (remember to install `restic` too).
 
 **From source:**
 
@@ -93,18 +86,11 @@ go build -o mnemo .
 
 ```sh
 mnemo init        # create or attach a restic repo (from config or env)
-mnemo sync        # pull, merge, then push: the one command you'll actually run, on every machine
+mnemo push        # snapshot this machine's sessions
+mnemo pull        # on another machine: restore + lay down for claude --resume
 mnemo doctor      # is everything healthy?
 mnemo log         # what's stored — and the real (deduped) footprint, not the logical size
 ```
-
-### Advanced: push and pull separately
-
-`sync` is a pull followed by a push, merging as it goes. Reach for it by default; `push` and `pull`
-are its two halves, for when you want only one side of that:
-
-- `mnemo push`: snapshot this machine's sessions. No pull, no merge.
-- `mnemo pull`: restore the latest snapshot and lay it down. No push.
 
 Config lives in `~/.config/mnemo/config.json`: the repo location plus *references* to secrets (a
 keychain command, a file, an env var) — so no credential is ever written to the file, and the same
@@ -114,7 +100,7 @@ progress counter on a terminal and raw `restic` behind `-v`.
 ## Status
 
 Working and in daily use on macOS, validated end-to-end against a real Backblaze B2 (S3) backend.
-The full CLI (`sync`, `push`, `pull`, `log`, `map`, `projects`, `machines`, `verify`, `prune`, `doctor`) is built.
+The full CLI — `push` `pull` `log` `map` `projects` `machines` `verify` `prune` `doctor` — is built.
 Still to verify: a live **Mac⇄Windows** resume (the Windows path handling is unit-tested, not yet
 run on a real Windows box).
 
