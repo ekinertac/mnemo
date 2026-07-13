@@ -222,3 +222,75 @@ func TestLayDownSkipsCorruptIdentity(t *testing.T) {
 		t.Errorf("Skipped = %v, want exactly one corrupt identity", rep.Skipped)
 	}
 }
+
+// laydownTarget writes an incoming staged file and a diverging local file, sets their mtimes, and
+// returns the local dst path. Used by the LocalAhead guard tests.
+func laydownTarget(t *testing.T, restored, claude, stagingRel, dstRel, incoming, local string, incomingT, localT time.Time) {
+	t.Helper()
+	write(t, restored, map[string]string{stagingRel: incoming})
+	dst := filepath.Join(claude, filepath.FromSlash(dstRel))
+	os.MkdirAll(filepath.Dir(dst), 0o755)
+	if err := os.WriteFile(dst, []byte(local), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	os.Chtimes(filepath.Join(restored, filepath.FromSlash(stagingRel)), incomingT, incomingT)
+	os.Chtimes(dst, localT, localT)
+}
+
+var (
+	tOld = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	tNew = time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
+)
+
+// A non-.jsonl file that is newer locally and differs in content is unpushed local work; pull must
+// flag it so it is not clobbered.
+func TestLocalAheadFlagsNewerLocalMarkdown(t *testing.T) {
+	restored, claude := t.TempDir(), t.TempDir()
+	laydownTarget(t, restored, claude,
+		"by-id/home_-Code-foo/memory/n.md", "projects/-Users-ekin-Code-foo/memory/n.md",
+		"remote\n", "local newer\n", tOld, tNew)
+	ahead, err := LocalAhead(restored, claude, "h", "-Users-ekin", manifest.New())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "projects/-Users-ekin-Code-foo/memory/n.md"
+	if len(ahead) != 1 || ahead[0] != want {
+		t.Fatalf("LocalAhead = %v, want [%s]", ahead, want)
+	}
+}
+
+// Local older than the snapshot: safe to overwrite, not flagged.
+func TestLocalAheadIgnoresOlderLocal(t *testing.T) {
+	restored, claude := t.TempDir(), t.TempDir()
+	laydownTarget(t, restored, claude,
+		"by-id/home_-Code-foo/memory/n.md", "projects/-Users-ekin-Code-foo/memory/n.md",
+		"remote\n", "local older\n", tNew, tOld)
+	ahead, _ := LocalAhead(restored, claude, "h", "-Users-ekin", manifest.New())
+	if len(ahead) != 0 {
+		t.Fatalf("LocalAhead = %v, want empty (local is older)", ahead)
+	}
+}
+
+// Newer local mtime but identical bytes (e.g. re-touched): not a real divergence, not flagged.
+func TestLocalAheadIgnoresIdenticalContent(t *testing.T) {
+	restored, claude := t.TempDir(), t.TempDir()
+	laydownTarget(t, restored, claude,
+		"by-id/home_-Code-foo/memory/n.md", "projects/-Users-ekin-Code-foo/memory/n.md",
+		"same\n", "same\n", tOld, tNew)
+	ahead, _ := LocalAhead(restored, claude, "h", "-Users-ekin", manifest.New())
+	if len(ahead) != 0 {
+		t.Fatalf("LocalAhead = %v, want empty (identical content)", ahead)
+	}
+}
+
+// .jsonl logs union-merge and never lose a line, so a newer local transcript is never flagged.
+func TestLocalAheadIgnoresJSONL(t *testing.T) {
+	restored, claude := t.TempDir(), t.TempDir()
+	laydownTarget(t, restored, claude,
+		"by-id/home_-Code-foo/s.jsonl", "projects/-Users-ekin-Code-foo/s.jsonl",
+		"remote\n", "local newer\n", tOld, tNew)
+	ahead, _ := LocalAhead(restored, claude, "h", "-Users-ekin", manifest.New())
+	if len(ahead) != 0 {
+		t.Fatalf("LocalAhead = %v, want empty (.jsonl union-merges)", ahead)
+	}
+}

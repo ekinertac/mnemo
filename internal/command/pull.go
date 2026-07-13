@@ -25,6 +25,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -44,6 +45,7 @@ func runPull(args []string) error {
 	layDown := fs.Bool("lay-down", true, "after restore, lay sessions into ~/.claude for this machine")
 	verbose := fs.Bool("verbose", false, "show restic's raw technical output instead of a plain summary")
 	fs.BoolVar(verbose, "v", false, "shorthand for --verbose")
+	force := fs.Bool("force", false, "overwrite local files even when they are newer than the snapshot")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -110,6 +112,28 @@ func runPull(args []string) error {
 	if err := overlayLocalOverrides(man, host); err != nil {
 		return err
 	}
+
+	// Safety guard (the lesson from the sync data-loss): never silently overwrite local files that
+	// are newer than the snapshot. Like git refusing a checkout that would stomp local changes,
+	// abort and tell the user to push this machine first — unless they explicitly --force.
+	if !*force {
+		ahead, err := restore.LocalAhead(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man)
+		if err != nil {
+			return err
+		}
+		if len(ahead) > 0 {
+			fmt.Printf("mnemo: refusing to pull — %d local file(s) are newer than the snapshot and would be overwritten:\n", len(ahead))
+			for _, f := range ahead[:min(len(ahead), 10)] {
+				fmt.Printf("  %s\n", f)
+			}
+			if len(ahead) > 10 {
+				fmt.Printf("  … and %d more\n", len(ahead)-10)
+			}
+			fmt.Println("Push this machine first (mnemo push), or re-run with --force to overwrite local.")
+			return errors.New("pull aborted to protect newer local data")
+		}
+	}
+
 	rep, err := restore.LayDown(target, filepath.Join(home, ".claude"), host, identity.EncodedHome(home), man)
 	if err != nil {
 		return err

@@ -14,12 +14,14 @@ package restore
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -64,6 +66,66 @@ func LayDown(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Man
 		return nil
 	})
 	return rep, err
+}
+
+// LocalAhead scans the restored tree read-only and returns the ~/.claude-relative paths of files a
+// pull would OVERWRITE even though the local copy is newer than the snapshot — i.e. unpushed local
+// work that laying the snapshot down would destroy. pull uses this to refuse (git-style) rather
+// than silently clobber; the destructive sync this replaced is exactly what it guards against.
+//
+// A file is "local is ahead" only when all of these hold: it maps to an existing local file, it is
+// NOT a .jsonl (those union-merge, which never drops a line), the local mtime is strictly newer
+// than the snapshot's, AND the bytes actually differ (so a file merely re-touched with identical
+// content never trips the guard). mtime is the signal restic preserves and claude --resume trusts.
+func LocalAhead(restoredRoot, claudeRoot, host, encodedHome string, m *manifest.Manifest) ([]string, error) {
+	var ahead []string
+	err := filepath.WalkDir(restoredRoot, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(restoredRoot, p)
+		if err != nil {
+			return err
+		}
+		relSlash := filepath.ToSlash(rel)
+		var throwaway Report // path resolution only; Unmapped/Skipped are reported by LayDown, not here
+		dstRel, ok := resolveDst(relSlash, host, encodedHome, m, &throwaway)
+		if !ok {
+			return nil // unmapped/corrupt: no local file to overwrite
+		}
+		if strings.HasSuffix(dstRel, ".jsonl") {
+			return nil // union-merge never loses a local line
+		}
+		dst := filepath.Join(claudeRoot, filepath.FromSlash(dstRel))
+		li, err := os.Stat(dst)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil // nothing local to lose
+		}
+		if err != nil {
+			return err
+		}
+		ii, err := os.Stat(p)
+		if err != nil {
+			return err
+		}
+		if !li.ModTime().After(ii.ModTime()) {
+			return nil // local not newer than the snapshot
+		}
+		local, err := os.ReadFile(dst)
+		if err != nil {
+			return err
+		}
+		incoming, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(local, incoming) {
+			ahead = append(ahead, dstRel)
+		}
+		return nil
+	})
+	sort.Strings(ahead)
+	return ahead, err
 }
 
 // resolveDst maps a restored-tree relative path (forward-slash) to its ~/.claude relative
